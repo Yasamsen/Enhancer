@@ -1,0 +1,106 @@
+export default {
+  slug: "iplookup",
+  name: "IP Lookup",
+  description:
+    "Get detailed geolocation, network, ISP, and timezone information for an IP address.",
+  category: "Utility",
+  method: "GET",
+  endpoint: "/api/iplookup",
+  icon: "Globe",
+
+  parameters: [
+    {
+      name: "ip",
+      type: "string",
+      required: false,
+      description:
+        "IPv4 or IPv6 address to lookup. If omitted, the requesting IP is detected automatically.",
+      example: "8.8.8.8"
+    }
+  ],
+
+  responseExample: {
+    success: true,
+    data: {
+      ip: "8.8.8.8",
+      city: "Mountain View",
+      region: "California",
+      regionCode: "CA",
+      country: "United States",
+      countryCode: "US",
+      continentCode: "NA",
+      latitude: 37.3861,
+      longitude: -122.084,
+      timezone: "America/Los_Angeles",
+      utcOffset: "-07:00",
+      postal: "94035",
+      callingCode: "+1",
+      currency: "USD",
+      isp: "Google LLC",
+      organization: "Google LLC",
+      asn: "AS15169",
+      network: "8.8.8.0/24"
+    }
+  },
+
+  responseFields: [
+    {
+      name: "success",
+      type: "boolean",
+      description: "Whether the request succeeded."
+    },
+    {
+      name: "data.ip",
+      type: "string",
+      description: "Queried IP address."
+    },
+    {
+      name: "data.city",
+      type: "string",
+      description: "City name."
+    },
+    {
+      name: "data.region",
+      type: "string",
+      description: "State or region name."
+    },
+    {
+      name: "data.country",
+      type: "string",
+      description: "Country name."
+    },
+    {
+      name: "data.countryCode",
+      type: "string",
+      description: "ISO country code."
+    },
+    {
+      name: "data.latitude",
+      type: "number",
+      description: "Latitude coordinate."
+    },
+    {
+      name: "data.longitude",
+      type: "number",
+      description: "Longitude coordinate."
+    },
+    {
+      name: "data.timezone",
+      type: "string",
+      description: "Timezone of the IP location."
+    },
+    {
+      name: "data.isp",
+      type: "string",
+      description: "Internet Service Provider or organization."
+    },
+    {
+      name: "data.asn",
+      type: "string",
+      description: "Autonomous System Number."
+    }
+  ],
+
+  exampleRequest:
+    "https://samapi.example.com/api/iplookup?ip=8.8.8.8"
+};
