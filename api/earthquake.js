@@ -12,7 +12,10 @@ module.exports = async function handler(req, res) {
     const response = await axios.get(
       "https://data.bmkg.go.id/DataMKG/TEWS/autogempa.json",
       {
-        timeout: 10000
+        headers: {
+          "User-Agent": "Mozilla/5.0"
+        },
+        timeout: 15000
       }
     );
 
@@ -21,7 +24,7 @@ module.exports = async function handler(req, res) {
     if (!gempa) {
       return res.status(502).json({
         status: false,
-        message: "Data gempa dari BMKG tidak tersedia"
+        message: "Data gempa BMKG tidak ditemukan"
       });
     }
 
@@ -37,7 +40,7 @@ module.exports = async function handler(req, res) {
         koordinat: gempa.Coordinates,
         lintang: gempa.Lintang,
         bujur: gempa.Bujur,
-        lokasi: gempa.Wilayah,
+        wilayah: gempa.Wilayah,
         potensi: gempa.Potensi,
         dirasakan: gempa.Dirasakan,
         shakemap: gempa.Shakemap
@@ -45,12 +48,15 @@ module.exports = async function handler(req, res) {
           : null
       }
     });
+
   } catch (error) {
-    console.error("BMKG Error:", error.message);
+    console.error("BMKG ERROR:", error);
 
     return res.status(502).json({
       status: false,
-      message: "Gagal mengambil data gempa dari BMKG"
+      source: "BMKG",
+      message: "Gagal mengambil data gempa dari BMKG",
+      error: error.message
     });
   }
 };
