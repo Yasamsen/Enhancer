@@ -60,7 +60,52 @@ export function bindDocs(api) {
     const buildUrl=()=>{const query=api.parameters.filter(p=>document.querySelector(`[data-param="${CSS.escape(p.name)}"]`)?.value).map(p=>`${p.name}=${encodeURIComponent(document.querySelector(`[data-param="${CSS.escape(p.name)}"]`).value)}`).join('&'); return `${BASE_URL}${api.endpoint}${query?'?'+query:''}`;};
     document.querySelectorAll('[data-param]').forEach(el=>el.addEventListener('input',()=>{document.getElementById('try-url').textContent=`${api.method} ${buildUrl()}`;}));
     document.getElementById('copy-url')?.addEventListener('click',async()=>{await copyText(buildUrl());});
-    document.getElementById('send-request')?.addEventListener('click',async()=>{const btn=document.getElementById('send-request'); const box=document.getElementById('try-response'); const requestUrl=buildUrl().replace(BASE_URL,window.location.origin); btn.disabled=true; btn.innerHTML=`${icon('LoaderCircle','h-3.5 w-3.5 animate-spin')}<span>Sending...</span>`; refreshIcons(); box.classList.remove('hidden'); box.innerHTML=codeBlock('Loading...'); try { const response=await fetch(requestUrl,{method:api.method,headers:{Accept:'application/json'}}); const contentType=response.headers.get('content-type')||''; const result=contentType.includes('application/json')?await response.json():await response.text(); const output=typeof result==='string'?result:JSON.stringify(result,null,2); box.innerHTML=codeBlock(output); box.querySelector('[data-code-copy]')?.addEventListener('click',async()=>{await copyText(output);}); btn.innerHTML=`${icon(response.ok?'Check':'AlertCircle','h-3.5 w-3.5')}<span>${response.ok?'Request sent':'Request failed'}</span>`; refreshIcons(); } catch (error) { const output=JSON.stringify({status:false,message:error?.message||'Request failed'},null,2); box.innerHTML=codeBlock(output); box.querySelector('[data-code-copy]')?.addEventListener('click',async()=>{await copyText(output);}); btn.innerHTML=`${icon('AlertCircle','h-3.5 w-3.5')}<span>Request failed</span>`; refreshIcons(); } finally { setTimeout(()=>{btn.disabled=false; btn.innerHTML=`${icon('Play','h-3.5 w-3.5')}<span>Send request</span>`;refreshIcons();},2500); }});
+    document.getElementById('send-request')?.addEventListener('click',async()=>{const btn=document.getElementById('send-request'); const box=document.getElementById('try-response'); const requestUrl=buildUrl().replace(BASE_URL,window.location.origin); btn.disabled=true; btn.innerHTML=`${icon('LoaderCircle','h-3.5 w-3.5 animate-spin')}<span>Sending...</span>`; refreshIcons(); box.classList.remove('hidden'); box.innerHTML=codeBlock('Loading...'); try { const response=await fetch(requestUrl,{method:api.method,headers:{Accept:'application/json'}}); const contentType=response.headers.get('content-type')||'';
+
+if(contentType.startsWith('image/')){
+  const blob=await response.blob();
+  const imageUrl=URL.createObjectURL(blob);
+
+  box.innerHTML=`
+    <div class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+      <div class="mb-3 text-xs font-semibold text-slate-600 dark:text-slate-300">
+        Response • ${contentType}
+      </div>
+
+      <div class="flex justify-center rounded-lg bg-white p-4">
+        <img
+          src="${imageUrl}"
+          alt="API Response"
+          class="max-w-full rounded-lg"
+          style="max-height:500px"
+        />
+      </div>
+
+      <a
+        href="${imageUrl}"
+        download="qrcode.png"
+        class="mt-4 flex items-center justify-center rounded-lg bg-cyan-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-cyan-700"
+      >
+        Download Image
+      </a>
+    </div>
+  `;
+}else{
+  const result=contentType.includes('application/json')
+    ?await response.json()
+    :await response.text();
+
+  const output=typeof result==='string'
+    ?result
+    :JSON.stringify(result,null,2);
+
+  box.innerHTML=codeBlock(output);
+
+  box.querySelector('[data-code-copy]')?.addEventListener(
+    'click',
+    async()=>{await copyText(output);}
+  );
+} box.querySelector('[data-code-copy]')?.addEventListener('click',async()=>{await copyText(output);}); btn.innerHTML=`${icon(response.ok?'Check':'AlertCircle','h-3.5 w-3.5')}<span>${response.ok?'Request sent':'Request failed'}</span>`; refreshIcons(); } catch (error) { const output=JSON.stringify({status:false,message:error?.message||'Request failed'},null,2); box.innerHTML=codeBlock(output); box.querySelector('[data-code-copy]')?.addEventListener('click',async()=>{await copyText(output);}); btn.innerHTML=`${icon('AlertCircle','h-3.5 w-3.5')}<span>Request failed</span>`; refreshIcons(); } finally { setTimeout(()=>{btn.disabled=false; btn.innerHTML=`${icon('Play','h-3.5 w-3.5')}<span>Send request</span>`;refreshIcons();},2500); }});
   }
 }
 
