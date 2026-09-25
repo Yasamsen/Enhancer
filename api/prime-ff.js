@@ -1,10 +1,4 @@
-/**
- * Judul : Kalkulator Prime Free Fire
- * Base Url : https://rifqistore.com/
- * Author : Melvin
- * Deskripsi : Kalkulator Free Fire untuk mengonversi jumlah
- * Poin Prime menjadi estimasi total diamond dan harga rupiah.
- */
+const axios = require("axios");
 
 function formatRupiah(angka) {
   return (
@@ -21,27 +15,28 @@ async function hitungPrimeFF(poinPrime) {
     10
   );
 
-  if (isNaN(poin) || poin <= 0) {
+  if (!poin || poin <= 0) {
     return {
       status: false,
       message: "Jumlah Poin Prime tidak valid."
     };
   }
 
-  const url = "https://rifqistore.com/id/calculator-free-fire";
-
-  // Rate default jika scraping gagal
   let rate = 126;
 
   try {
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
+    const response = await axios.get(
+      "https://rifqistore.com/id/calculator-free-fire",
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
+        },
+        timeout: 15000
       }
-    });
+    );
 
-    const html = await res.text();
+    const html = response.data;
 
     const matchRate =
       html.match(
@@ -50,12 +45,11 @@ async function hitungPrimeFF(poinPrime) {
       html.match(/(\d+)\s*\/\s*1dm/i) ||
       html.match(/rate\s*[:=]\s*(\d+)/i);
 
-    if (matchRate && matchRate[1]) {
+    if (matchRate?.[1]) {
       rate = parseInt(matchRate[1], 10);
     }
-  } catch (err) {
-    // Tetap menggunakan rate default
-    rate = 126;
+  } catch (error) {
+    console.error("Scraping rate gagal:", error.message);
   }
 
   const totalDiamond = poin;
@@ -94,13 +88,13 @@ module.exports = async function handler(req, res) {
   try {
     const result = await hitungPrimeFF(poin);
 
-    return res.status(result.status ? 200 : 400).json(result);
+    return res.status(200).json(result);
   } catch (error) {
     console.error("Prime FF Error:", error);
 
     return res.status(500).json({
       status: false,
-      message: "Gagal menghitung Prime Free Fire.",
+      message: "Gagal memproses Prime Free Fire.",
       error: error.message
     });
   }
