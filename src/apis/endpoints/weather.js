@@ -1,78 +1,104 @@
 export default {
-  "slug": "weather",
-  "name": "Weather Info",
-  "description": "Get current weather conditions and forecasts for any city worldwide.",
-  "category": "Utility",
-  "method": "GET",
-  "endpoint": "/api/weather",
-  "icon": "CloudSun",
-  "parameters": [
+  slug: "weather",
+  name: "Weather",
+  description: "Get current weather information for a city.",
+  category: "Weather",
+  method: "GET",
+  endpoint: "/api/weather",
+  icon: "CloudSun",
+
+  parameters: [
     {
-      "name": "city",
-      "type": "string",
-      "required": true,
-      "description": "City name to get weather for.",
-      "example": "Jakarta"
-    },
-    {
-      "name": "units",
-      "type": "string",
-      "required": false,
-      "description": "Temperature units (metric, imperial).",
-      "example": "metric"
+      name: "city",
+      type: "string",
+      required: true,
+      description: "City name to get weather information.",
+      example: "Jakarta"
     }
   ],
-  "responseExample": {
-    "success": true,
-    "data": {
-      "city": "Jakarta",
-      "country": "Indonesia",
-      "temperature": 31,
-      "condition": "Partly Cloudy",
-      "humidity": 75,
-      "windSpeed": 12,
-      "forecast": [
-        {
-          "day": "Mon",
-          "high": 32,
-          "low": 25,
-          "condition": "Sunny"
-        },
-        {
-          "day": "Tue",
-          "high": 30,
-          "low": 24,
-          "condition": "Rain"
-        }
-      ]
+
+  responseExample: {
+    success: true,
+    data: {
+      city: "Jakarta",
+      country: "Indonesia",
+      region: "Jakarta Raya",
+      temperature: {
+        celsius: 30,
+        fahrenheit: 86,
+        feelsLikeCelsius: 34,
+        feelsLikeFahrenheit: 93
+      },
+      condition: "Partly cloudy",
+      humidity: 70,
+      cloudCover: 50,
+      visibilityKm: 10,
+      pressureMb: 1010,
+      windSpeedKph: 12,
+      windDirection: "NW",
+      uvIndex: 6,
+      observationTime: "2026-09-25 12:00 PM"
     }
   },
-  "responseFields": [
+
+  responseFields: [
     {
-      "name": "success",
-      "type": "boolean",
-      "description": "Whether the request succeeded."
+      name: "success",
+      type: "boolean",
+      description: "Whether the request succeeded."
     },
     {
-      "name": "data.city",
-      "type": "string",
-      "description": "City name."
+      name: "data.city",
+      type: "string",
+      description: "City name."
     },
     {
-      "name": "data.temperature",
-      "type": "number",
-      "description": "Current temperature."
+      name: "data.country",
+      type: "string",
+      description: "Country name."
     },
     {
-      "name": "data.condition",
-      "type": "string",
-      "description": "Weather condition description."
+      name: "data.temperature.celsius",
+      type: "number",
+      description: "Temperature in Celsius."
     },
     {
-      "name": "data.forecast",
-      "type": "array",
-      "description": "Multi-day forecast array."
+      name: "data.temperature.fahrenheit",
+      type: "number",
+      description: "Temperature in Fahrenheit."
+    },
+    {
+      name: "data.temperature.feelsLikeCelsius",
+      type: "number",
+      description: "Feels-like temperature in Celsius."
+    },
+    {
+      name: "data.condition",
+      type: "string",
+      description: "Current weather condition."
+    },
+    {
+      name: "data.humidity",
+      type: "number",
+      description: "Relative humidity percentage."
+    },
+    {
+      name: "data.windSpeedKph",
+      type: "number",
+      description: "Wind speed in kilometers per hour."
+    },
+    {
+      name: "data.windDirection",
+      type: "string",
+      description: "Wind direction."
+    },
+    {
+      name: "data.uvIndex",
+      type: "number",
+      description: "Current UV index."
     }
   ],
-  "exampleRequest": "https://samapi.example.com/api/weather?city=Jakarta&units=metric"
+
+  exampleRequest:
+    "https://samapi.example.com/api/weather?city=Jakarta"
 };
