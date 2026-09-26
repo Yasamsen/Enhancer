@@ -1,22 +1,17 @@
 const axios = require("axios");
 
+const API_KEY = "ptz";
+
 module.exports = async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({
-      status: false,
-      message: "Method not allowed"
-    });
-  }
-
   try {
-    const { apikey, email } = req.body || {};
-
-    if (!apikey) {
-      return res.status(400).json({
+    if (req.method !== "POST") {
+      return res.status(405).json({
         status: false,
-        message: "Parameter apikey wajib diisi"
+        message: "Method not allowed"
       });
     }
+
+    const email = req.body?.email || req.query?.email;
 
     if (!email) {
       return res.status(400).json({
@@ -26,8 +21,8 @@ module.exports = async function handler(req, res) {
     }
 
     const body = new URLSearchParams({
-      apikey,
-      email
+      apikey: API_KEY,
+      email: String(email)
     }).toString();
 
     const response = await axios.post(
@@ -46,21 +41,14 @@ module.exports = async function handler(req, res) {
     return res.status(response.status).json(response.data);
 
   } catch (error) {
-    console.error("Alight Send Error:", error.message);
+    console.error("ALIGHT SEND ERROR:", error);
 
-    if (error.response) {
-      return res.status(error.response.status).json(
-        error.response.data || {
-          status: false,
-          message: "Request ke server Alight gagal"
-        }
-      );
-    }
-
-    return res.status(502).json({
-      status: false,
-      message: "Gagal terhubung ke server Alight",
-      error: error.message
-    });
+    return res.status(error.response?.status || 502).json(
+      error.response?.data || {
+        status: false,
+        message: "Gagal terhubung ke server AmPrem",
+        error: error.message
+      }
+    );
   }
 };
