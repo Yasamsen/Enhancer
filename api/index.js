@@ -2246,6 +2246,8 @@ export default async function handler(req, res) {
       return handleImgviral(req, res);
     case "youtube-stalker":
       return handleYoutubeStalker(req, res);
+case "capcut":
+  return handleCapcut(req, res);
     case "tempmail":
       return handleTempmail(req, res);
     default:
