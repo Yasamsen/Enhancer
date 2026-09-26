@@ -1,6 +1,6 @@
-const axios = require("axios");
+import axios from "axios";
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== "GET") {
     return res.status(405).json({
       status: false,
@@ -59,4 +59,4 @@ module.exports = async function handler(req, res) {
       error: error.message
     });
   }
-};
+}
