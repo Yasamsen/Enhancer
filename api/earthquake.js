@@ -1,5 +1,3 @@
-import axios from "axios";
-
 export default async function handler(req, res) {
   if (req.method !== "GET") {
     return res.status(405).json({
@@ -9,21 +7,31 @@ export default async function handler(req, res) {
   }
 
   try {
-    const response = await axios.get(
+    const response = await fetch(
       "https://data.bmkg.go.id/DataMKG/TEWS/autogempa.json",
       {
         headers: {
-          "User-Agent": "Mozilla/5.0"
-        },
-        timeout: 15000
+          "Accept": "application/json"
+        }
       }
     );
 
-    const gempa = response.data?.Infogempa?.gempa;
+    if (!response.ok) {
+      return res.status(response.status).json({
+        status: false,
+        source: "BMKG",
+        message: "BMKG menolak request",
+        http_status: response.status
+      });
+    }
+
+    const json = await response.json();
+    const gempa = json?.Infogempa?.gempa;
 
     if (!gempa) {
       return res.status(502).json({
         status: false,
+        source: "BMKG",
         message: "Data gempa BMKG tidak ditemukan"
       });
     }
@@ -55,7 +63,7 @@ export default async function handler(req, res) {
     return res.status(502).json({
       status: false,
       source: "BMKG",
-      message: "Gagal mengambil data gempa dari BMKG",
+      message: "Gagal mengambil data BMKG",
       error: error.message
     });
   }
