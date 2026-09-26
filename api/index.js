@@ -1674,6 +1674,8 @@ export default async function handler(req, res) {
       return handleWikipedia(req, res);
     case "imgviral":
       return handleImgviral(req, res);
+    case "youtube-stalker":
+      return handleYoutubeStalker(req, res);
     case "tempmail":
       return handleTempmail(req, res);
     default:
