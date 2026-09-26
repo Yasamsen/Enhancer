@@ -49,6 +49,70 @@ async function ensureJsonBody(req) {
     req.body = {};
   }
 }
+/* ============================================================
+ * IMGVIRAL
+ * ============================================================ */
+async function handleImgviral(req, res) {
+  const API_JSON = "https://raw.githubusercontent.com/Yasamsen/media-repo/main/imgviral/api.json";
+  const MIME_TYPES = {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    webp: "image/webp"
+  };
+
+  if (req.method !== "GET") {
+    return res.status(405).json({ status: false, message: "Method not allowed" });
+  }
+
+  try {
+    const listResponse = await fetch(API_JSON, { cache: "no-store" });
+
+    if (!listResponse.ok) {
+      return res.status(502).json({ status: false, message: "Gagal mengambil api.json" });
+    }
+
+    const json = await listResponse.json();
+
+    if (!Array.isArray(json.data) || json.data.length === 0) {
+      return res.status(404).json({ status: false, message: "Gambar tidak ditemukan" });
+    }
+
+    const imageUrl = json.data[Math.floor(Math.random() * json.data.length)];
+
+    if (typeof imageUrl !== "string") {
+      return res.status(500).json({ status: false, message: "URL gambar tidak valid" });
+    }
+
+    const cleanUrl = imageUrl.split("?")[0].toLowerCase();
+    const extension = cleanUrl.split(".").pop();
+    const contentType = MIME_TYPES[extension] || "image/jpeg";
+
+    const imageResponse = await fetch(imageUrl);
+
+    if (!imageResponse.ok) {
+      return res.status(502).json({
+        status: false,
+        message: "Gagal mengambil gambar",
+        http_status: imageResponse.status
+      });
+    }
+
+    const buffer = Buffer.from(await imageResponse.arrayBuffer());
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+
+    return res.status(200).send(buffer);
+  } catch (error) {
+    console.error("IMGVIRAL ERROR:", error);
+    return res.status(502).json({
+      status: false,
+      message: "Gagal mengambil gambar",
+      error: error.message
+    });
+  }
+}
 
 /* ============================================================
  * TIKTOK
@@ -1394,6 +1458,8 @@ export default async function handler(req, res) {
       return handleAlightSend(req, res);
     case "wikipedia":
       return handleWikipedia(req, res);
+    case "imgviral":
+      return handleImgviral(req, res);
     case "tempmail":
       return handleTempmail(req, res);
     default:
