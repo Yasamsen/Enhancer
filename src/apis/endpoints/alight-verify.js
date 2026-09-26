@@ -9,22 +9,16 @@ export default {
 
   parameters: [
     {
-      name: "apikey",
-      type: "string",
-      required: true,
-      description: "API key AmPrem."
-    },
-    {
       name: "email",
       type: "string",
       required: true,
-      description: "Email yang digunakan."
+      description: "Email yang digunakan untuk verifikasi."
     },
     {
       name: "link",
       type: "string",
       required: true,
-      description: "Link verifikasi."
+      description: "Link verifikasi yang diterima."
     }
   ],
 
