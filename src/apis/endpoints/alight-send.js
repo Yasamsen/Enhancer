@@ -9,12 +9,6 @@ export default {
 
   parameters: [
     {
-      name: "apikey",
-      type: "string",
-      required: true,
-      description: "API key AmPrem."
-    },
-    {
       name: "email",
       type: "string",
       required: true,
