@@ -1,8 +1,10 @@
-const axios = require("axios");
-const cheerio = require("cheerio");
+import axios from "axios";
+import * as cheerio from "cheerio";
 
 async function stalkIG(username) {
-  username = String(username || "").replace(/^@/, "").trim();
+  username = String(username || "")
+    .replace(/^@/, "")
+    .trim();
 
   if (!username) {
     return {
@@ -88,13 +90,13 @@ async function stalkIG(username) {
               : null,
             profile_pic: avatar,
             followers: followersMatch
-              ? parseInt(followersMatch[1])
+              ? parseInt(followersMatch[1], 10)
               : 0,
             following: followingMatch
-              ? parseInt(followingMatch[1])
+              ? parseInt(followingMatch[1], 10)
               : 0,
             posts: mediaMatch
-              ? parseInt(mediaMatch[1])
+              ? parseInt(mediaMatch[1], 10)
               : 0,
             biography,
             is_verified: verifiedMatch
@@ -126,7 +128,7 @@ async function stalkIG(username) {
   }
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== "GET") {
     return res.status(405).json({
       status: false,
@@ -138,5 +140,7 @@ module.exports = async function handler(req, res) {
 
   const result = await stalkIG(username);
 
-  return res.status(result.status ? 200 : 400).json(result);
-};
+  return res
+    .status(result.status ? 200 : 400)
+    .json(result);
+}
