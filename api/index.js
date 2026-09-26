@@ -55,10 +55,7 @@ async function ensureJsonBody(req) {
 async function handleWaifuimg(req, res) {
   try {
     if (req.method !== "GET") {
-      return res.status(405).json({
-        status: false,
-        message: "Method harus GET."
-      });
+      return res.status(405).send("Method harus GET.");
     }
 
     const response = await fetch(
@@ -66,16 +63,13 @@ async function handleWaifuimg(req, res) {
     );
 
     if (!response.ok) {
-      throw new Error(`Gagal mengambil data GitHub: ${response.status}`);
+      throw new Error(`Gagal mengambil api.json: ${response.status}`);
     }
 
     const json = await response.json();
 
     if (!Array.isArray(json.data) || json.data.length === 0) {
-      return res.status(404).json({
-        status: false,
-        message: "Data gambar WaifuImg tidak ditemukan."
-      });
+      return res.status(404).send("Data gambar tidak ditemukan.");
     }
 
     const validImages = json.data.filter(
@@ -83,32 +77,35 @@ async function handleWaifuimg(req, res) {
     );
 
     if (validImages.length === 0) {
-      return res.status(404).json({
-        status: false,
-        message: "Tidak ada URL gambar yang valid."
-      });
+      return res.status(404).send("Tidak ada URL gambar yang valid.");
     }
 
-    const randomUrl =
+    const imageUrl =
       validImages[Math.floor(Math.random() * validImages.length)];
 
-    return res.status(200).json({
-      status: true,
-      source: "WaifuImg",
-      data: {
-        url: randomUrl
-      }
-    });
+    const imageResponse = await fetch(imageUrl);
+
+    if (!imageResponse.ok) {
+      throw new Error(`Gagal mengambil gambar: ${imageResponse.status}`);
+    }
+
+    const contentType =
+      imageResponse.headers.get("content-type") || "image/jpeg";
+
+    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+
+    res.status(200);
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Cache-Control", "no-store");
+
+    return res.send(imageBuffer);
 
   } catch (error) {
-    return res.status(500).json({
-      status: false,
-      message: "Gagal mengambil gambar WaifuImg.",
-      error: error.message
-    });
+    return res.status(500).send(
+      `Gagal mengambil gambar WaifuImg: ${error.message}`
+    );
   }
 }
-
 /* =========================================================
    CAPCUT STALKER / SCRAPER
    ========================================================= */
