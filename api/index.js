@@ -50,7 +50,7 @@ async function ensureJsonBody(req) {
   }
 }
 /* =========================================================
-   Waifuing
+   Waifuimg
    ========================================================= */
 async function handleWaifuimg(req, res) {
   try {
