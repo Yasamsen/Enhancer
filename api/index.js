@@ -49,6 +49,220 @@ async function ensureJsonBody(req) {
     req.body = {};
   }
 }
+
+/* =========================================================
+ * YouTube Stalker
+ * ========================================================= */
+
+function youtubeStalkerFindKey(obj, key) {
+  let result = null;
+
+  function search(value) {
+    if (value && typeof value === "object") {
+      if (value[key] !== undefined) {
+        result = value[key];
+        return true;
+      }
+
+      for (const k of Object.keys(value)) {
+        if (search(value[k])) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  search(obj);
+  return result;
+}
+
+async function handleYoutubeStalker(req, res) {
+  if (req.method !== "GET") {
+    return res.status(405).json({
+      status: false,
+      message: "Method tidak diizinkan",
+      error: "Method Not Allowed"
+    });
+  }
+
+  const username = req.query?.username;
+
+  if (!username) {
+    return res.status(400).json({
+      status: false,
+      message: "Parameter username wajib diisi",
+      error: "Username tidak ditemukan",
+      example:
+        "/api/youtube-stalker?username=@kingronal21"
+    });
+  }
+
+  try {
+    let youtubeUsername = String(username).trim();
+
+    if (!youtubeUsername.startsWith("@")) {
+      youtubeUsername = `@${youtubeUsername}`;
+    }
+
+    const youtubeUrl =
+      `https://www.youtube.com/${encodeURIComponent(youtubeUsername)}`;
+
+    const response = await axios.get(youtubeUrl, {
+      headers: {
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+      },
+      timeout: 20000,
+      maxRedirects: 5
+    });
+
+    const html = response.data;
+
+    /*
+     * YouTube menyisipkan data halaman ke dalam
+     * ytInitialData.
+     */
+    const match = html.match(
+      /var ytInitialData\s*=\s*({.*?});\s*<\/script>/
+    );
+
+    if (!match) {
+      return res.status(404).json({
+        status: false,
+        message:
+          "Data YouTube tidak ditemukan. Pastikan username atau handle valid.",
+        error: "ytInitialData tidak ditemukan"
+      });
+    }
+
+    let youtubeData;
+
+    try {
+      youtubeData = JSON.parse(match[1]);
+    } catch (parseError) {
+      return res.status(502).json({
+        status: false,
+        message: "Gagal membaca data dari halaman YouTube",
+        error: parseError.message
+      });
+    }
+
+    const metadata =
+      youtubeData?.metadata?.channelMetadataRenderer;
+
+    if (!metadata) {
+      return res.status(404).json({
+        status: false,
+        message:
+          "Data channel tidak ditemukan. Pastikan username atau handle YouTube valid.",
+        error: "channelMetadataRenderer tidak ditemukan"
+      });
+    }
+
+    const channelId = metadata.externalId || null;
+    const channelUrl = metadata.channelUrl || youtubeUrl;
+    const title = metadata.title || null;
+    const description = metadata.description || "";
+
+    let avatar = null;
+
+    const avatarThumbnails =
+      metadata?.avatar?.thumbnails || [];
+
+    if (avatarThumbnails.length > 0) {
+      avatar =
+        avatarThumbnails[avatarThumbnails.length - 1]?.url ||
+        null;
+    }
+
+    let banner = null;
+
+    const bannerImage =
+      youtubeStalkerFindKey(
+        youtubeData?.header,
+        "imageBannerViewModel"
+      );
+
+    if (
+      bannerImage?.image?.sources &&
+      Array.isArray(bannerImage.image.sources) &&
+      bannerImage.image.sources.length > 0
+    ) {
+      banner =
+        bannerImage.image.sources[
+          bannerImage.image.sources.length - 1
+        ]?.url || null;
+    }
+
+    let subscribers = "0";
+    let videos = "0";
+
+    const headerString = JSON.stringify(
+      youtubeData?.header || {}
+    );
+
+    const subscriberMatch =
+      headerString.match(
+        /"content":"([^"]+ subscribers)"/i
+      );
+
+    if (subscriberMatch) {
+      subscribers = subscriberMatch[1];
+    } else {
+      const subscriberMatchSingular =
+        headerString.match(
+          /"content":"([^"]+ subscriber)"/i
+        );
+
+      if (subscriberMatchSingular) {
+        subscribers = subscriberMatchSingular[1];
+      }
+    }
+
+    const videoMatch =
+      headerString.match(
+        /"content":"([^"]+ videos?)"/i
+      );
+
+    if (videoMatch) {
+      videos = videoMatch[1];
+    }
+
+    return res.status(200).json({
+      status: true,
+      source: "YouTube",
+      data: {
+        id: channelId,
+        username: youtubeUsername,
+        title,
+        avatar,
+        banner,
+        subscribers,
+        videos,
+        description,
+        channel_url: channelUrl
+      }
+    });
+
+  } catch (error) {
+    console.error(
+      "YOUTUBE STALKER ERROR:",
+      error
+    );
+
+    return res.status(
+      error.response?.status || 502
+    ).json({
+      status: false,
+      message:
+        "Gagal mengambil data channel YouTube",
+      error: error.message
+    });
+  }
+}
 /* ============================================================
  * IMGVIRAL
  * ============================================================ */
