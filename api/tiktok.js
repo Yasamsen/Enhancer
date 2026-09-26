@@ -1,8 +1,8 @@
-const axios = require("axios");
-const cheerio = require("cheerio");
-const FormData = require("form-data");
+import axios from "axios";
+import * as cheerio from "cheerio";
+import FormData from "form-data";
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== "GET") {
     return res.status(405).json({
       status: false,
@@ -16,7 +16,8 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({
       status: false,
       message: "Parameter url wajib diisi",
-      example: "/api/tiktok?url=https://www.tiktok.com/@user/video/123456"
+      example:
+        "/api/tiktok?url=https://www.tiktok.com/@user/video/123456"
     });
   }
 
@@ -25,64 +26,89 @@ module.exports = async function handler(req, res) {
 
   try {
     // 1. Ambil halaman TikTok
-    const response = await axios.get(url.replace(/\/+$/, ""), {
-      headers: {
-        "User-Agent": userAgent,
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
-      },
-      timeout: 20000
-    });
+    const response = await axios.get(
+      url.replace(/\/+$/, ""),
+      {
+        headers: {
+          "User-Agent": userAgent,
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+        },
+        timeout: 20000
+      }
+    );
 
     // 2. Ambil cookies
     const rawCookies = response.headers["set-cookie"] || [];
+
     const cookiesString = rawCookies
       .map((cookie) => cookie.split(";")[0])
       .join("; ");
 
     // 3. Parse data TikTok
     const $ = cheerio.load(response.data);
-    const scriptData = $("#__UNIVERSAL_DATA_FOR_REHYDRATION__").text();
+
+    const scriptData = $(
+      "#__UNIVERSAL_DATA_FOR_REHYDRATION__"
+    ).text();
 
     if (!scriptData) {
-      throw new Error("Data rehydration tidak ditemukan.");
+      throw new Error(
+        "Data rehydration tidak ditemukan."
+      );
     }
 
     const data = JSON.parse(scriptData);
 
     const videoDetail =
-      data["__DEFAULT_SCOPE__"]?.["webapp.video-detail"];
+      data["__DEFAULT_SCOPE__"]?.[
+        "webapp.video-detail"
+      ];
 
-    const item = videoDetail?.itemInfo?.itemStruct;
+    const item =
+      videoDetail?.itemInfo?.itemStruct;
 
     if (!item) {
-      throw new Error("Data video TikTok tidak ditemukan.");
+      throw new Error(
+        "Data video TikTok tidak ditemukan."
+      );
     }
 
     const videoUrl = item.video?.playAddr;
 
     if (!videoUrl) {
-      throw new Error("URL video tidak ditemukan.");
+      throw new Error(
+        "URL video tidak ditemukan."
+      );
     }
 
     // 4. Download video sebagai buffer
-    const videoResponse = await axios.get(videoUrl, {
-      headers: {
-        "User-Agent": userAgent,
-        Referer: "https://www.tiktok.com/",
-        Cookie: cookiesString
-      },
-      responseType: "arraybuffer",
-      timeout: 60000
-    });
+    const videoResponse = await axios.get(
+      videoUrl,
+      {
+        headers: {
+          "User-Agent": userAgent,
+          Referer: "https://www.tiktok.com/",
+          Cookie: cookiesString
+        },
+        responseType: "arraybuffer",
+        timeout: 60000
+      }
+    );
 
-    // 5. Upload langsung ke CDN
+    // 5. Upload ke CDN
     const form = new FormData();
 
-    form.append("file", Buffer.from(videoResponse.data), {
-      filename: `${item.author?.uniqueId || "tiktok"}_video.mp4`,
-      contentType: "video/mp4"
-    });
+    form.append(
+      "file",
+      Buffer.from(videoResponse.data),
+      {
+        filename: `${
+          item.author?.uniqueId || "tiktok"
+        }_video.mp4`,
+        contentType: "video/mp4"
+      }
+    );
 
     const uploadResponse = await axios.post(
       "https://cdn.zass.in/upload",
@@ -99,6 +125,7 @@ module.exports = async function handler(req, res) {
 
     return res.status(200).json({
       status: true,
+
       data: {
         source_url: url,
         cdn_url: uploadResponse.data?.url,
@@ -126,8 +153,12 @@ module.exports = async function handler(req, res) {
         }
       }
     });
+
   } catch (error) {
-    console.error("TikTok API Error:", error);
+    console.error(
+      "TikTok API Error:",
+      error
+    );
 
     return res.status(500).json({
       status: false,
@@ -138,4 +169,4 @@ module.exports = async function handler(req, res) {
       }`
     });
   }
-};
+}
