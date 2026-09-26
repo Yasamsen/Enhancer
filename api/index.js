@@ -49,6 +49,65 @@ async function ensureJsonBody(req) {
     req.body = {};
   }
 }
+/* =========================================================
+   Waifuing
+   ========================================================= */
+async function handleWaifuimg(req, res) {
+  try {
+    if (req.method !== "GET") {
+      return res.status(405).json({
+        status: false,
+        message: "Method harus GET."
+      });
+    }
+
+    const response = await fetch(
+      "https://raw.githubusercontent.com/Yasamsen/media-repo/main/waifuimg/api.json"
+    );
+
+    if (!response.ok) {
+      throw new Error(`Gagal mengambil data GitHub: ${response.status}`);
+    }
+
+    const json = await response.json();
+
+    if (!Array.isArray(json.data) || json.data.length === 0) {
+      return res.status(404).json({
+        status: false,
+        message: "Data gambar WaifuImg tidak ditemukan."
+      });
+    }
+
+    const validImages = json.data.filter(
+      url => typeof url === "string" && /^https?:\/\//i.test(url)
+    );
+
+    if (validImages.length === 0) {
+      return res.status(404).json({
+        status: false,
+        message: "Tidak ada URL gambar yang valid."
+      });
+    }
+
+    const randomUrl =
+      validImages[Math.floor(Math.random() * validImages.length)];
+
+    return res.status(200).json({
+      status: true,
+      source: "WaifuImg",
+      data: {
+        url: randomUrl
+      }
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: "Gagal mengambil gambar WaifuImg.",
+      error: error.message
+    });
+  }
+}
 
 /* =========================================================
    CAPCUT STALKER / SCRAPER
@@ -2244,6 +2303,8 @@ export default async function handler(req, res) {
       return handleWikipedia(req, res);
     case "imgviral":
       return handleImgviral(req, res);
+case "waifuimg":
+  return handleWaifuimg(req, res);
     case "youtube-stalker":
       return handleYoutubeStalker(req, res);
 case "capcut":
