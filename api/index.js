@@ -51,6 +51,576 @@ async function ensureJsonBody(req) {
 }
 
 /* =========================================================
+   CAPCUT STALKER / SCRAPER
+   ========================================================= */
+
+function capcutExtractHashtags(text) {
+  if (!text) return [];
+
+  const matches = text.match(/#[\w\u0590-\u05ff]+/gi) || [];
+
+  return [...new Set(matches)];
+}
+
+async function handleCapcut(req, res) {
+  try {
+    // Hanya GET
+    if (req.method !== "GET") {
+      return res.status(405).json({
+        status: false,
+        message: "Method tidak diizinkan. Gunakan GET.",
+        error: "Method Not Allowed"
+      });
+    }
+
+    // Ambil parameter URL
+    const inputUrl =
+      req.query?.url ||
+      req.query?.link ||
+      req.query?.video;
+
+    // Validasi URL
+    if (!inputUrl) {
+      return res.status(400).json({
+        status: false,
+        message: "Parameter url wajib diisi.",
+        error: "Parameter url tidak ditemukan.",
+        example:
+          `${req.headers["x-forwarded-proto"] || "https"}://${req.headers.host}/api/capcut?url=https://www.capcut.com/tv2/ZSVEwBgtH/`
+      });
+    }
+
+    if (!inputUrl.includes("capcut.com")) {
+      return res.status(400).json({
+        status: false,
+        message: "URL CapCut tidak valid.",
+        error:
+          "Gunakan URL dari www.capcut.com.",
+        example:
+          `${req.headers["x-forwarded-proto"] || "https"}://${req.headers.host}/api/capcut?url=https://www.capcut.com/tv2/ZSVEwBgtH/`
+      });
+    }
+
+    /* =====================================================
+       REQUEST CAPCUT
+       ===================================================== */
+
+    const response = await axios.get(inputUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+
+        "Accept-Language":
+          "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+
+        "Accept":
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+      },
+
+      timeout: 15000,
+      maxRedirects: 5
+    });
+
+    const html = response.data;
+
+    let templateData = null;
+    let loaderObj = null;
+
+    /* =====================================================
+       CARI loaderData
+       ===================================================== */
+
+    const scripts = [
+      ...html.matchAll(
+        /<script[^>]*>([\s\S]*?)<\/script>/g
+      )
+    ];
+
+    for (const script of scripts) {
+      if (!script[1].includes("loaderData")) {
+        continue;
+      }
+
+      try {
+        const parsed = JSON.parse(script[1]);
+
+        loaderObj =
+          parsed.loaderData?.["template-detail_$"] ||
+          parsed.loaderData?.["template_detail"];
+
+        if (loaderObj?.templateDetail) {
+          templateData = loaderObj.templateDetail;
+          break;
+        }
+      } catch (_) {
+        // Lanjut ke script berikutnya
+      }
+    }
+
+    /* =====================================================
+       FALLBACK REGEX
+       ===================================================== */
+
+    if (!templateData) {
+      const capcutGetRegex = (regex) => {
+        return (
+          html
+            .match(regex)?.[1]
+            ?.replace(/\\u002F/g, "/") || ""
+        );
+      };
+
+      const capcutGetNum = (regex) => {
+        return parseInt(
+          html.match(regex)?.[1] || "0",
+          10
+        );
+      };
+
+      const videoUrl = capcutGetRegex(
+        /"videoUrl":"(.*?)"/
+      );
+
+      if (!videoUrl) {
+        return res.status(404).json({
+          status: false,
+          message:
+            "Gagal mengekstrak metadata dari URL CapCut.",
+          error:
+            "Data template tidak ditemukan pada halaman CapCut."
+        });
+      }
+
+      const coverUrl = capcutGetRegex(
+        /"coverUrl":"(.*?)"/
+      );
+
+      const title = capcutGetRegex(
+        /"title":"(.*?)"/
+      );
+
+      const description = capcutGetRegex(
+        /"desc":"(.*?)"/
+      );
+
+      const templateId = capcutGetRegex(
+        /"templateId":"(.*?)"/
+      );
+
+      const width = capcutGetNum(
+        /"videoWidth":([0-9]+)/
+      );
+
+      const height = capcutGetNum(
+        /"videoHeight":([0-9]+)/
+      );
+
+      const duration = capcutGetNum(
+        /"templateDuration":([0-9]+)/
+      );
+
+      const createTime = capcutGetNum(
+        /"createTime":([0-9]+)/
+      );
+
+      return res.status(200).json({
+        status: true,
+        source: "CapCut",
+
+        data: {
+          id: templateId,
+
+          title:
+            title || "CapCut Template",
+
+          description,
+
+          hashtags:
+            capcutExtractHashtags(description),
+
+          coverUrl,
+
+          videoUrl,
+
+          videoWidth: width,
+
+          videoHeight: height,
+
+          videoRatio:
+            width && height
+              ? `${width}:${height}`
+              : "9:16",
+
+          durationMs: duration,
+
+          durationSec:
+            Number(
+              (duration / 1000).toFixed(2)
+            ),
+
+          segmentCount:
+            capcutGetNum(
+              /"segmentAmount":([0-9]+)/
+            ),
+
+          usageCount:
+            capcutGetNum(
+              /"usageAmount":([0-9]+)/
+            ),
+
+          likeCount:
+            capcutGetNum(
+              /"likeAmount":([0-9]+)/
+            ) ||
+            capcutGetNum(
+              /"likeCount":([0-9]+)/
+            ),
+
+          playCount:
+            capcutGetNum(
+              /"playAmount":([0-9]+)/
+            ) ||
+            capcutGetNum(
+              /"playCount":([0-9]+)/
+            ),
+
+          commentCount:
+            capcutGetNum(
+              /"commentAmount":([0-9]+)/
+            ),
+
+          createdAt:
+            createTime
+              ? new Date(
+                  createTime * 1000
+                ).toISOString()
+              : "",
+
+          createdTimestamp:
+            createTime,
+
+          capabilities: [],
+
+          author: {
+            name:
+              capcutGetRegex(
+                /"author":\{.*?"name":"(.*?)"/
+              ),
+
+            avatarUrl:
+              capcutGetRegex(
+                /"avatarUrl":"(.*?)"/
+              )
+          },
+
+          originalUrl: inputUrl
+        }
+      });
+    }
+
+    /* =====================================================
+       DATA NORMAL
+       ===================================================== */
+
+    const createTime =
+      Number(
+        templateData.createTime || 0
+      );
+
+    const duration =
+      Number(
+        templateData.templateDuration || 0
+      );
+
+    /* =====================================================
+       RECOMMENDATION
+       ===================================================== */
+
+    const rawRecommend =
+      Array.isArray(loaderObj?.recommendList)
+        ? loaderObj.recommendList
+        : [];
+
+    const recommendList =
+      rawRecommend.map((item) => {
+        const itemCreateTime =
+          Number(item.createTime || 0);
+
+        const hasAuthor =
+          Boolean(
+            item.author?.name ||
+            item.author?.avatarUrl ||
+            item.author?.secUid
+          );
+
+        const author = hasAuthor
+          ? {
+              name:
+                item.author?.name ||
+                undefined,
+
+              avatarUrl:
+                item.author?.avatarUrl ||
+                undefined,
+
+              description:
+                item.author?.description ||
+                undefined,
+
+              profileUrl:
+                item.author?.profileUrl
+                  ? `https://www.capcut.com${item.author.profileUrl}`
+                  : undefined,
+
+              secUid:
+                item.author?.secUid ||
+                undefined
+            }
+          : undefined;
+
+        return {
+          templateId:
+            String(
+              item.templateId || ""
+            ),
+
+          title:
+            item.title || "",
+
+          description:
+            item.desc || "",
+
+          coverUrl:
+            item.coverUrl || "",
+
+          videoUrl:
+            item.videoUrl ||
+            undefined,
+
+          usageCount:
+            Number(
+              item.usageAmount || 0
+            ),
+
+          likeCount:
+            Number(
+              item.likeAmount || 0
+            ),
+
+          createdAt:
+            itemCreateTime
+              ? new Date(
+                  itemCreateTime * 1000
+                ).toISOString()
+              : undefined,
+
+          createdTimestamp:
+            itemCreateTime ||
+            undefined,
+
+          canonicalUrl:
+            item.canonicalPath
+              ? `https://www.capcut.com${item.canonicalPath}`
+              : undefined,
+
+          author
+        };
+      });
+
+    /* =====================================================
+       METADATA
+       ===================================================== */
+
+    const description =
+      templateData.desc || "";
+
+    const metadata = {
+      id:
+        String(
+          templateData.templateId ||
+          loaderObj?.templateId ||
+          ""
+        ),
+
+      title:
+        templateData.title || "",
+
+      description,
+
+      hashtags:
+        capcutExtractHashtags(
+          description
+        ),
+
+      tagTitle:
+        templateData.tagTitle || "",
+
+      canonicalUrl:
+        loaderObj?.canonicalPath
+          ? `https://www.capcut.com${loaderObj.canonicalPath}`
+          : (
+              templateData.structuredData?.url ||
+              ""
+            ),
+
+      originalUrl: inputUrl,
+
+      coverUrl:
+        templateData.coverUrl || "",
+
+      videoUrl:
+        templateData.videoUrl || "",
+
+      videoWidth:
+        Number(
+          templateData.videoWidth || 0
+        ),
+
+      videoHeight:
+        Number(
+          templateData.videoHeight || 0
+        ),
+
+      videoRatio:
+        templateData.videoRatio ||
+        (
+          templateData.videoWidth &&
+          templateData.videoHeight
+            ? `${templateData.videoWidth}:${templateData.videoHeight}`
+            : ""
+        ),
+
+      durationMs:
+        duration,
+
+      durationSec:
+        Number(
+          (duration / 1000).toFixed(2)
+        ),
+
+      segmentCount:
+        Number(
+          templateData.segmentAmount || 0
+        ),
+
+      usageCount:
+        Number(
+          templateData.usageAmount || 0
+        ),
+
+      likeCount:
+        Number(
+          templateData.likeAmount || 0
+        ),
+
+      playCount:
+        Number(
+          templateData.playAmount || 0
+        ),
+
+      commentCount:
+        Number(
+          templateData.commentAmount || 0
+        ),
+
+      createdAt:
+        createTime
+          ? new Date(
+              createTime * 1000
+            ).toISOString()
+          : "",
+
+      createdTimestamp:
+        createTime,
+
+      capabilities:
+        Array.isArray(
+          templateData.capabilityName
+        )
+          ? templateData.capabilityName
+          : [],
+
+      ugcLang:
+        templateData.ugcLang || "",
+
+      templateLanguage:
+        templateData.templateLanguage || "",
+
+      itemType:
+        templateData.itemType,
+
+      scene:
+        templateData.scene,
+
+      isValidRegion:
+        templateData.is_valid_template_region ??
+        loaderObj?.isValidTemplateRegion,
+
+      useAvailable:
+        templateData.useAvailable,
+
+      author: {
+        name:
+          templateData.author?.name ||
+          "",
+
+        avatarUrl:
+          templateData.author?.avatarUrl ||
+          "",
+
+        description:
+          templateData.author?.description ||
+          "",
+
+        profileUrl:
+          templateData.author?.profileUrl
+            ? `https://www.capcut.com${templateData.author.profileUrl}`
+            : "",
+
+        secUid:
+          templateData.author?.secUid ||
+          "",
+
+        uid:
+          templateData.author?.uid ||
+          0
+      },
+
+      collections:
+        Array.isArray(
+          templateData.collections
+        )
+          ? templateData.collections
+          : [],
+
+      recommendList:
+        recommendList.length > 0
+          ? recommendList
+          : undefined
+    };
+
+    /* =====================================================
+       RESPONSE
+       ===================================================== */
+
+    return res.status(200).json({
+      status: true,
+      source: "CapCut",
+      data: metadata
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message:
+        "Gagal memproses data CapCut.",
+      error:
+        error?.message ||
+        String(error)
+    });
+  }
+}
+/* =========================================================
  * YouTube Stalker
  * ========================================================= */
 
