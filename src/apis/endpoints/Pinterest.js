@@ -1,10 +1,17 @@
 export default {
   slug: "pinterest",
-  name: "Pinterest Search",
-  description: "Mencari gambar dan video dari Pinterest.",
+
+  name: "Pinterest",
+
+  description:
+    "Mencari gambar dan video dari Pinterest tanpa membutuhkan browser Chromium.",
+
   category: "Search",
+
   method: "GET",
+
   endpoint: "/api/pinterest",
+
   icon: "Image",
 
   parameters: [
@@ -14,6 +21,13 @@ export default {
       required: true,
       description: "Kata kunci pencarian Pinterest.",
       example: "anime"
+    },
+    {
+      name: "limit",
+      type: "number",
+      required: false,
+      description: "Jumlah hasil yang ingin ditampilkan. Maksimal 25.",
+      example: "10"
     }
   ],
 
@@ -31,6 +45,15 @@ export default {
         description: "Anime image",
         isVideo: false,
         videoUrl: ""
+      },
+      {
+        id: "987654321098",
+        img: "https://i.pinimg.com/originals/example2.jpg",
+        thumb: "https://i.pinimg.com/236x/example2.jpg",
+        title: "Anime Wallpaper",
+        description: "Anime wallpaper",
+        isVideo: false,
+        videoUrl: ""
       }
     ]
   },
@@ -39,7 +62,7 @@ export default {
     {
       name: "status",
       type: "boolean",
-      description: "Status request."
+      description: "Status permintaan."
     },
     {
       name: "source",
@@ -49,12 +72,12 @@ export default {
     {
       name: "query",
       type: "string",
-      description: "Kata kunci pencarian."
+      description: "Kata kunci yang digunakan."
     },
     {
       name: "total",
       type: "number",
-      description: "Jumlah hasil."
+      description: "Jumlah hasil yang ditemukan."
     },
     {
       name: "data",
@@ -89,7 +112,7 @@ export default {
     {
       name: "data[].isVideo",
       type: "boolean",
-      description: "Menandakan apakah pin memiliki video."
+      description: "Menunjukkan apakah pin merupakan video."
     },
     {
       name: "data[].videoUrl",
@@ -98,5 +121,6 @@ export default {
     }
   ],
 
-  exampleRequest: "/api/pinterest?q=anime"
+  exampleRequest:
+    "/api/pinterest?q=anime&limit=10"
 };
