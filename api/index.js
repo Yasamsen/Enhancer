@@ -49,7 +49,7 @@ async function ensureJsonBody(req) {
     req.body = {};
   }
 }
-//Terabox
+//Teraboxx
 async function handleTerabox(req, res) {
   try {
     if (req.method !== "GET") {
