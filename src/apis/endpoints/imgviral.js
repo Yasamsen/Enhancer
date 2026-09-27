@@ -1,6 +1,6 @@
 export default {
   slug: "imgviral",
-  name: "Img Viral",
+  name: "Image-Viral",
   description: "Get a random viral image.",
   category: "Media",
   method: "GET",
