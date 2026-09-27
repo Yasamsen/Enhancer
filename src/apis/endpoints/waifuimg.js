@@ -1,6 +1,6 @@
 export default {
   slug: "waifuimg",
-  name: "WaifuImg",
+  name: "Waifu-Ku",
   description: "Mengambil gambar waifu secara random.",
   category: "Anime",
   method: "GET",
