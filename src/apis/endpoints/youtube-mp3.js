@@ -5,7 +5,7 @@ export default {
   category: "Downloader",
   method: "GET",
   endpoint: "/api/youtube-mp3",
-  icon: "Yotube",
+  icon: "Youtube",
 
   parameters: [
     {
