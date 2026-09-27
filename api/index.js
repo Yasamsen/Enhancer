@@ -50,7 +50,7 @@ async function ensureJsonBody(req) {
   }
 }
 
-//Terabox
+//Teraboxx
 async function handleTerabox(req, res) {
   try {
     if (req.method !== "GET") {
@@ -67,18 +67,18 @@ async function handleTerabox(req, res) {
         status: false,
         message: "Parameter url wajib diisi.",
         example:
-          "/api/terabox?url=https://www.terabox.com/sharing/link?surl=XXXXXXXX"
+          "/api/terabox?url=https://terabox.com/s/xxxxxxxx"
       });
     }
 
     // =====================================================
-    // NORMALISASI URL
+    // VALIDASI DOMAIN
     // =====================================================
 
-    let parsedUrl;
+    let parsed;
 
     try {
-      parsedUrl = new URL(shareUrl);
+      parsed = new URL(shareUrl);
     } catch {
       return res.status(400).json({
         status: false,
@@ -86,21 +86,19 @@ async function handleTerabox(req, res) {
       });
     }
 
-    const hostname = parsedUrl.hostname.toLowerCase();
+    const hostname = parsed.hostname.toLowerCase();
 
     const allowedDomains = [
       "terabox.com",
-      "www.terabox.com",
       "terabox.app",
-      "www.terabox.app",
       "1024terabox.com",
-      "www.1024terabox.com",
       "1024tera.com",
-      "www.1024tera.com",
       "teraboxapp.com",
-      "www.teraboxapp.com",
       "teraboxshare.com",
-      "www.teraboxshare.com"
+      "teraboxlink.com",
+      "terasharelink.com",
+      "terasharefile.com",
+      "terafileshare.com"
     ];
 
     const validDomain = allowedDomains.some(
@@ -112,7 +110,7 @@ async function handleTerabox(req, res) {
     if (!validDomain) {
       return res.status(400).json({
         status: false,
-        message: "URL bukan link TeraBox yang valid."
+        message: "Domain bukan TeraBox yang valid."
       });
     }
 
@@ -120,147 +118,28 @@ async function handleTerabox(req, res) {
     // LIMIT
     // =====================================================
 
-    const limitRaw = Number(req.query?.limit || 100);
+    const limitRaw = Number(
+      req.query?.limit || 100
+    );
 
     const limit = Math.min(
       Math.max(
-        Number.isFinite(limitRaw) ? Math.floor(limitRaw) : 100,
+        Number.isFinite(limitRaw)
+          ? Math.floor(limitRaw)
+          : 100,
         1
       ),
       500
     );
 
     // =====================================================
-    // HEADERS
+    // AMBIL SURL
     // =====================================================
 
-    const apiHeaders = {
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-
-  "Accept":
-    "application/json, text/plain, */*",
-
-  "Accept-Language":
-    "en-US,en;q=0.9",
-
-  "Referer":
-    finalUrl,
-
-  "Origin":
-    "https://www.terabox.com",
-
-  "X-Requested-With":
-    "XMLHttpRequest",
-
-  "Sec-Fetch-Dest":
-    "empty",
-
-  "Sec-Fetch-Mode":
-    "cors",
-
-  "Sec-Fetch-Site":
-    "same-origin",
-
-  "Connection":
-    "keep-alive",
-
-  ...(cookie
-    ? { Cookie: cookie }
-    : {})
-};
-
-    // =====================================================
-    // 1. BUKA SHARE PAGE
-    // =====================================================
-
-    let pageResponse;
-
-    try {
-      pageResponse = await axios.get(shareUrl, {
-        headers,
-        timeout: 25000,
-        maxRedirects: 10,
-        validateStatus: () => true
-      });
-    } catch (error) {
-      return res.status(502).json({
-        status: false,
-        message: "Gagal mengakses halaman TeraBox.",
-        error: error.message
-      });
-    }
-
-    if (
-      pageResponse.status < 200 ||
-      pageResponse.status >= 400
-    ) {
-      return res.status(502).json({
-        status: false,
-        message: "TeraBox menolak halaman share.",
-        error: `HTTP ${pageResponse.status}`
-      });
-    }
-
-    const html = String(
-      pageResponse.data || ""
-    );
-
-    // =====================================================
-    // 2. FINAL URL
-    // =====================================================
-
-    let finalUrl = shareUrl;
-
-    try {
-      const responseUrl =
-        pageResponse.request?.res?.responseUrl;
-
-      if (responseUrl) {
-        finalUrl = responseUrl;
-      }
-    } catch {}
-
-    // =====================================================
-    // 3. AMBIL SURL
-    // =====================================================
-
-    let shorturl = "";
-
-    try {
-      const finalParsed =
-        new URL(finalUrl);
-
-      shorturl =
-        finalParsed.searchParams.get("surl") ||
-        finalParsed.searchParams.get("shorturl") ||
-        "";
-    } catch {}
-
-    if (!shorturl) {
-      try {
-        const originalParsed =
-          new URL(shareUrl);
-
-        shorturl =
-          originalParsed.searchParams.get("surl") ||
-          originalParsed.searchParams.get("shorturl") ||
-          "";
-      } catch {}
-    }
-
-    // /s/XXXXXXXX
-    if (!shorturl) {
-      const match =
-        finalUrl.match(
-          /\/s\/([^/?#]+)/i
-        );
-
-      if (match?.[1]) {
-        shorturl = match[1];
-      }
-    }
+    let shorturl =
+      parsed.searchParams.get("surl") ||
+      parsed.searchParams.get("shorturl") ||
+      "";
 
     if (!shorturl) {
       const match =
@@ -273,510 +152,303 @@ async function handleTerabox(req, res) {
       }
     }
 
-    // encoded surl
-    if (!shorturl) {
-      const match =
-        html.match(
-          /["']surl["']\s*[:=]\s*["']([^"']+)["']/i
-        );
-
-      if (match?.[1]) {
-        shorturl = match[1];
-      }
-    }
-
-    if (!shorturl) {
-      const match =
-        html.match(
-          /surl%22%3A%22([^"%]+)%22/i
-        );
-
-      if (match?.[1]) {
-        shorturl =
-          decodeURIComponent(match[1]);
-      }
-    }
-
     if (!shorturl) {
       return res.status(400).json({
         status: false,
         message:
-          "SURL TeraBox tidak ditemukan.",
-        finalUrl
+          "SURL TeraBox tidak ditemukan."
       });
     }
 
+    // Jangan hapus angka pertama secara otomatis.
+    // Shorturl yang valid bisa saja memang diawali angka.
     shorturl =
-      decodeURIComponent(shorturl)
-        .replace(/^1/, "");
+      decodeURIComponent(shorturl);
 
     // =====================================================
-    // 4. AMBIL JSTOKEN
+    // RESOLVER PUBLIK
     // =====================================================
 
-    let jsToken = "";
+    const resolverUrls = [
+      `https://tbx-proxy.shakir-ansarii075.workers.dev/?mode=resolve&surl=${encodeURIComponent(shorturl)}`,
 
-    const tokenPatterns = [
-      /window\.jsToken\s*=\s*["']([^"']+)["']/i,
-
-      /["']jsToken["']\s*[:=]\s*["']([^"']+)["']/i,
-
-      /jsToken%22%3A%22([^"%]+)%22/i,
-
-      /jsToken%22%3A([^,}]+)/i,
-
-      /"jsToken":"([^"]+)"/i,
-
-      /'jsToken':'([^']+)'/i,
-
-      /fn%28%22([^%]+)%22%29/i,
-
-      /fn\("([^"]+)"\)/i
+      `https://terabox-worker.robinkumarshakya103.workers.dev/api?url=${encodeURIComponent(shareUrl)}`
     ];
 
-    for (const pattern of tokenPatterns) {
-      const match =
-        html.match(pattern);
+    let resolverData = null;
+    let resolverError = null;
 
-      if (match?.[1]) {
-        try {
-          jsToken =
-            decodeURIComponent(match[1]);
-        } catch {
-          jsToken = match[1];
-        }
+    for (const resolverUrl of resolverUrls) {
+      try {
+        const response =
+          await axios.get(
+            resolverUrl,
+            {
+              headers: {
+                "User-Agent":
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                  "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
 
-        break;
-      }
-    }
+                "Accept":
+                  "application/json,text/plain,*/*",
 
-    // =====================================================
-    // 5. DP LOG ID
-    // =====================================================
+                "Accept-Language":
+                  "en-US,en;q=0.9"
+              },
 
-    let dpLogId = "";
+              timeout: 30000,
 
-    const logPatterns = [
-      /dp-logid=([^&"'\\]+)/i,
+              validateStatus:
+                () => true
+            }
+          );
 
-      /["']dp-logid["']\s*:\s*["']([^"']+)["']/i,
-
-      /["']dpLogId["']\s*[:=]\s*["']([^"']+)["']/i,
-
-      /dp-logid%3D([^&%"']+)/i
-    ];
-
-    for (const pattern of logPatterns) {
-      const match =
-        html.match(pattern);
-
-      if (match?.[1]) {
-        dpLogId = match[1];
-        break;
-      }
-    }
-
-    // =====================================================
-    // 6. COOKIE
-    // =====================================================
-
-    let cookie = "";
-
-    try {
-      const setCookie =
-        pageResponse.headers[
-          "set-cookie"
-        ];
-
-      if (Array.isArray(setCookie)) {
-        cookie = setCookie
-          .map(item =>
-            item.split(";")[0]
-          )
-          .join("; ");
-      }
-    } catch {}
-
-    // =====================================================
-    // 7. API HEADERS
-    // =====================================================
-
-    const apiHeaders = {
-      "User-Agent":
-        headers["User-Agent"],
-
-      "Accept":
-        "application/json, text/plain, */*",
-
-      "Accept-Language":
-        "en-US,en;q=0.9",
-
-      "Referer":
-        finalUrl,
-
-      "Origin":
-        "https://www.terabox.com",
-
-      "X-Requested-With":
-        "XMLHttpRequest",
-
-      ...(cookie
-        ? { Cookie: cookie }
-        : {})
-    };
-
-    // =====================================================
-    // 8. REQUEST LIST
-    // =====================================================
-
-    async function requestList(dir = "") {
-      const params = {
-        app_id: "250528",
-        web: "1",
-        channel: "0",
-
-        jsToken:
-          jsToken || "",
-
-        "dp-logid":
-          dpLogId || "",
-
-        page: "1",
-
-        num: String(
-          Math.min(limit, 100)
-        ),
-
-        by: "name",
-
-        order: "asc",
-
-        site_referer: "",
-
-        shorturl
-      };
-
-      if (dir) {
-        params.dir = dir;
-      } else {
-        params.root = "1";
-      }
-
-      const endpoints = [
-        "https://www.terabox.com/share/list",
-        "https://www.terabox.app/share/list",
-        "https://1024terabox.com/share/list"
-      ];
-
-      let lastResponse = null;
-
-      for (const endpoint of endpoints) {
-        try {
-          const response =
-            await axios.get(
-              endpoint,
-              {
-                params,
-                headers: apiHeaders,
-                timeout: 25000,
-                validateStatus: () => true
-              }
-            );
-
-          lastResponse = response;
-
-          const data =
+        if (
+          response.status >= 200 &&
+          response.status < 300 &&
+          response.data
+        ) {
+          resolverData =
             response.data;
 
-          if (
-            response.status >= 200 &&
-            response.status < 300 &&
-            data
-          ) {
-            if (
-              data.errno === 0 ||
-              data.errno === "0" ||
-              Array.isArray(data.list)
-            ) {
-              return data;
-            }
-          }
-        } catch {}
-      }
-
-      const errorInfo =
-        lastResponse?.data || {};
-
-      throw new Error(
-        errorInfo.errmsg ||
-        errorInfo.message ||
-        `TeraBox API gagal. HTTP ${lastResponse?.status || "unknown"}`
-      );
-    }
-
-    // =====================================================
-    // 9. MEDIA TYPE
-    // =====================================================
-
-    const imageExtensions = [
-      ".jpg",
-      ".jpeg",
-      ".png",
-      ".gif",
-      ".webp",
-      ".bmp",
-      ".svg",
-      ".avif",
-      ".heic",
-      ".heif"
-    ];
-
-    const videoExtensions = [
-      ".mp4",
-      ".mkv",
-      ".webm",
-      ".mov",
-      ".avi",
-      ".flv",
-      ".m4v",
-      ".3gp",
-      ".ts"
-    ];
-
-    function getMediaType(
-      filename,
-      category
-    ) {
-      const name =
-        String(filename || "")
-          .toLowerCase();
-
-      if (
-        imageExtensions.some(
-          ext => name.endsWith(ext)
-        )
-      ) {
-        return "image";
-      }
-
-      if (
-        videoExtensions.some(
-          ext => name.endsWith(ext)
-        )
-      ) {
-        return "video";
-      }
-
-      const cat =
-        String(category || "")
-          .toLowerCase();
-
-      if (
-        cat === "3" ||
-        cat.includes("image") ||
-        cat.includes("picture")
-      ) {
-        return "image";
-      }
-
-      if (
-        cat === "1" ||
-        cat.includes("video")
-      ) {
-        return "video";
-      }
-
-      return "file";
-    }
-
-    // =====================================================
-    // 10. NORMALIZE FILE
-    // =====================================================
-
-    function normalizeFile(
-      item,
-      folderPath
-    ) {
-      const name =
-        item.server_filename ||
-        item.filename ||
-        item.name ||
-        "unknown";
-
-      const type =
-        getMediaType(
-          name,
-          item.category
-        );
-
-      return {
-        name,
-
-        type,
-
-        size:
-          Number(item.size || 0),
-
-        path:
-          folderPath || "/",
-
-        thumbnail:
-          item.thumbs?.url3 ||
-          item.thumbs?.url2 ||
-          item.thumbs?.url1 ||
-          item.thumbnail ||
-          "",
-
-        url:
-          item.dlink ||
-          item.download_url ||
-          item.downloadLink ||
-          item.url ||
-          "",
-
-        fs_id:
-          item.fs_id ||
-          item.id ||
-          "",
-
-        md5:
-          item.md5 ||
-          ""
-      };
-    }
-
-    // =====================================================
-    // 11. REKURSIF
-    // =====================================================
-
-    const files = [];
-
-    const visitedDirs =
-      new Set();
-
-    let firstListError = null;
-
-    async function crawl(
-      dir = "",
-      folderPath = ""
-    ) {
-      if (
-        files.length >= limit
-      ) {
-        return;
-      }
-
-      const dirKey =
-        dir || "/";
-
-      if (
-        visitedDirs.has(dirKey)
-      ) {
-        return;
-      }
-
-      visitedDirs.add(dirKey);
-
-      let data;
-
-      try {
-        data =
-          await requestList(dir);
-      } catch (error) {
-        if (!firstListError) {
-          firstListError =
-            error.message;
-        }
-
-        return;
-      }
-
-      const list =
-        Array.isArray(data?.list)
-          ? data.list
-          : [];
-
-      for (
-        const item of list
-      ) {
-        if (
-          files.length >= limit
-        ) {
           break;
         }
 
-        const isDirectory =
-          item.isdir === 1 ||
-          item.isdir === "1" ||
-          item.isdir === true;
-
-        const itemName =
-          item.server_filename ||
-          item.filename ||
-          item.name ||
-          "folder";
-
-        if (isDirectory) {
-          const childDir =
-            item.path ||
-            item.server_filename ||
-            itemName;
-
-          const childPath =
-            folderPath
-              ? `${folderPath}/${itemName}`
-              : itemName;
-
-          await crawl(
-            childDir,
-            childPath
+        resolverError =
+          new Error(
+            `Resolver HTTP ${response.status}`
           );
 
-          continue;
-        }
-
-        const file =
-          normalizeFile(
-            item,
-            folderPath
-          );
-
-        if (
-          file.type === "image" ||
-          file.type === "video"
-        ) {
-          files.push(file);
-        }
+      } catch (error) {
+        resolverError = error;
       }
     }
 
-    await crawl();
-
     // =====================================================
-    // 12. JIKA GAGAL
+    // JIKA RESOLVER GAGAL
     // =====================================================
 
-    if (
-      files.length === 0 &&
-      firstListError
-    ) {
+    if (!resolverData) {
       return res.status(502).json({
         status: false,
         message:
-          "TeraBox tidak mengembalikan daftar file.",
+          "Resolver TeraBox gagal mengambil data.",
         error:
-          firstListError,
-        shorturl,
-        finalUrl,
-        jsTokenFound:
-          Boolean(jsToken),
-        dpLogIdFound:
-          Boolean(dpLogId)
+          resolverError?.message ||
+          "Unknown resolver error",
+        shorturl
       });
     }
 
     // =====================================================
-    // 13. HITUNG
+    // NORMALISASI HASIL RESOLVER
+    // =====================================================
+
+    function normalizeResolverFiles(data) {
+      const result = [];
+
+      function addFile(item) {
+        if (!item || typeof item !== "object") {
+          return;
+        }
+
+        const name =
+          item.name ||
+          item.filename ||
+          item.server_filename ||
+          item.fileName ||
+          "unknown";
+
+        const lower =
+          String(name).toLowerCase();
+
+        let type = "file";
+
+        if (
+          /\.(jpg|jpeg|png|gif|webp|bmp|svg|avif|heic|heif)$/i
+            .test(lower)
+        ) {
+          type = "image";
+        }
+
+        if (
+          /\.(mp4|mkv|webm|mov|avi|flv|m4v|3gp|ts)$/i
+            .test(lower)
+        ) {
+          type = "video";
+        }
+
+        // Resolver tertentu memakai category.
+        if (
+          type === "file" &&
+          (
+            item.category === 3 ||
+            item.category === "3"
+          )
+        ) {
+          type = "image";
+        }
+
+        if (
+          type === "file" &&
+          (
+            item.category === 1 ||
+            item.category === "1"
+          )
+        ) {
+          type = "video";
+        }
+
+        if (
+          type !== "image" &&
+          type !== "video"
+        ) {
+          return;
+        }
+
+        result.push({
+          name,
+
+          type,
+
+          size:
+            Number(
+              item.size ||
+              item.filesize ||
+              0
+            ),
+
+          path:
+            item.path ||
+            item.folder ||
+            "/",
+
+          thumbnail:
+            item.thumb ||
+            item.thumbnail ||
+            item.thumbs?.url3 ||
+            item.thumbs?.url2 ||
+            item.thumbs?.url1 ||
+            "",
+
+          url:
+            item.dlink ||
+            item.download_url ||
+            item.downloadUrl ||
+            item.url ||
+            "",
+
+          fid:
+            item.fid ||
+            item.fs_id ||
+            item.id ||
+            "",
+
+          shareid:
+            item.shareid ||
+            "",
+
+          uk:
+            item.uk ||
+            ""
+        });
+      }
+
+      // -----------------------------------------------
+      // Format: { source, data: {...} }
+      // -----------------------------------------------
+
+      if (
+        data &&
+        data.data &&
+        !Array.isArray(data.data) &&
+        typeof data.data === "object"
+      ) {
+        addFile(data.data);
+      }
+
+      // -----------------------------------------------
+      // Format: { data: [...] }
+      // -----------------------------------------------
+
+      if (
+        data &&
+        Array.isArray(data.data)
+      ) {
+        for (
+          const item of data.data
+        ) {
+          addFile(item);
+        }
+      }
+
+      // -----------------------------------------------
+      // Format: { files: [...] }
+      // -----------------------------------------------
+
+      if (
+        data &&
+        Array.isArray(data.files)
+      ) {
+        for (
+          const item of data.files
+        ) {
+          addFile(item);
+        }
+      }
+
+      // -----------------------------------------------
+      // Format: { list: [...] }
+      // -----------------------------------------------
+
+      if (
+        data &&
+        Array.isArray(data.list)
+      ) {
+        for (
+          const item of data.list
+        ) {
+          addFile(item);
+        }
+      }
+
+      // -----------------------------------------------
+      // Format: { data: { list: [...] } }
+      // -----------------------------------------------
+
+      if (
+        data?.data &&
+        Array.isArray(data.data.list)
+      ) {
+        for (
+          const item of data.data.list
+        ) {
+          addFile(item);
+        }
+      }
+
+      return result;
+    }
+
+    let files =
+      normalizeResolverFiles(
+        resolverData
+      );
+
+    // =====================================================
+    // FILTER MEDIA
+    // =====================================================
+
+    files = files
+      .filter(
+        file =>
+          file.type === "image" ||
+          file.type === "video"
+      )
+      .slice(0, limit);
+
+    // =====================================================
+    // HITUNG
     // =====================================================
 
     const images =
@@ -792,45 +464,29 @@ async function handleTerabox(req, res) {
       );
 
     // =====================================================
-    // 14. KOSONG
+    // JIKA TIDAK ADA DATA
     // =====================================================
 
-    if (
-      files.length === 0
-    ) {
+    if (files.length === 0) {
       return res.status(404).json({
         status: false,
-
         message:
-          "Tidak ditemukan gambar atau video pada link TeraBox tersebut.",
-
-        query:
-          shareUrl,
-
-        finalUrl,
-
+          "Resolver tidak menemukan gambar atau video.",
         shorturl,
-
-        jsTokenFound:
-          Boolean(jsToken),
-
-        dpLogIdFound:
-          Boolean(dpLogId),
-
-        visitedDirectories:
-          visitedDirs.size
+        resolverResponse:
+          resolverData
       });
     }
 
     // =====================================================
-    // 15. SUCCESS
+    // SUCCESS
     // =====================================================
 
     return res.status(200).json({
       status: true,
 
       source:
-        "TeraBox",
+        "TeraBox Resolver",
 
       url:
         shareUrl,
@@ -853,12 +509,177 @@ async function handleTerabox(req, res) {
   } catch (error) {
     return res.status(500).json({
       status: false,
-
       message:
-        "Gagal melakukan scrape TeraBox.",
-
+        "Gagal melakukan resolve TeraBox.",
       error:
         error.message
+    });
+  }
+}
+
+//Lyrics Sportfy
+async function handleLyrics(req, res) {
+  try {
+    if (req.method !== "GET") {
+      return res.status(405).json({
+        status: false,
+        message: "Method harus GET."
+      });
+    }
+
+    let queryOrTrack = req.query?.q || req.query?.query || req.query?.url;
+    const artist = req.query?.artist || "";
+
+    if (!queryOrTrack) {
+      return res.status(400).json({
+        status: false,
+        message: "Parameter q wajib diisi.",
+        example: "/api/lyrics?q=Shape%20of%20You&artist=Ed%20Sheeran"
+      });
+    }
+
+    let trackName = queryOrTrack;
+    let artistName = artist;
+
+    // Jika input berupa URL Spotify
+    if (queryOrTrack.includes("spotify.com/track/")) {
+      const match = queryOrTrack.match(/track\/([a-zA-Z0-9]+)/);
+
+      if (match) {
+        const spotifyId = match[1];
+
+        try {
+          const oembed = await axios.get(
+            `https://open.spotify.com/oembed?url=https://open.spotify.com/track/${spotifyId}`,
+            {
+              timeout: 5000
+            }
+          );
+
+          trackName =
+            oembed.data?.title
+              ?.replace(/\(feat\..*?\)/i, "")
+              .trim() || trackName;
+
+          // Ambil artist dari Spotify embed
+          try {
+            const resEmbed = await axios.get(
+              `https://open.spotify.com/embed/track/${spotifyId}`,
+              {
+                timeout: 5000
+              }
+            );
+
+            const matchArtist = resEmbed.data.match(
+              /"artists":\[\{"name":"([^"]+)"/
+            );
+
+            if (matchArtist) {
+              artistName = matchArtist[1];
+            }
+          } catch (_) {}
+        } catch (_) {}
+      }
+    }
+
+    // ==========================================
+    // 1. EXACT SEARCH LRCLIB
+    // ==========================================
+
+    try {
+      const response = await axios.get(
+        "https://lrclib.net/api/get",
+        {
+          params: {
+            track_name: trackName,
+            artist_name: artistName
+          },
+          timeout: 10000
+        }
+      );
+
+      const data = response.data;
+
+      if (
+        data &&
+        (data.plainLyrics || data.syncedLyrics)
+      ) {
+        return res.status(200).json({
+          status: true,
+          source: "LRCLIB",
+          data: {
+            trackName: data.trackName || trackName,
+            artistName: data.artistName || artistName,
+            albumName: data.albumName || null,
+            duration: data.duration || null,
+            plainLyrics: data.plainLyrics || null,
+            syncedLyrics: data.syncedLyrics || null
+          }
+        });
+      }
+    } catch (_) {}
+
+    // ==========================================
+    // 2. FALLBACK FUZZY SEARCH
+    // ==========================================
+
+    try {
+      const searchRes = await axios.get(
+        "https://lrclib.net/api/search",
+        {
+          params: {
+            q: `${trackName} ${artistName}`.trim()
+          },
+          timeout: 10000
+        }
+      );
+
+      if (
+        Array.isArray(searchRes.data) &&
+        searchRes.data.length > 0
+      ) {
+        const best = searchRes.data[0];
+
+        if (
+          best.plainLyrics ||
+          best.syncedLyrics
+        ) {
+          return res.status(200).json({
+            status: true,
+            source: "LRCLIB",
+            data: {
+              trackName: best.trackName || trackName,
+              artistName: best.artistName || artistName,
+              albumName: best.albumName || null,
+              duration: best.duration || null,
+              plainLyrics: best.plainLyrics || null,
+              syncedLyrics: best.syncedLyrics || null
+            }
+          });
+        }
+      }
+    } catch (error) {
+      return res.status(500).json({
+        status: false,
+        message: "Gagal mengambil lirik.",
+        error: error.message
+      });
+    }
+
+    // ==========================================
+    // TIDAK DITEMUKAN
+    // ==========================================
+
+    return res.status(404).json({
+      status: false,
+      message: "Lirik lagu tidak ditemukan."
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: "Gagal memproses pencarian lirik.",
+      error: error.message
     });
   }
 }
