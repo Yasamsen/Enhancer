@@ -49,6 +49,138 @@ async function ensureJsonBody(req) {
     req.body = {};
   }
 }
+//Ytmp3
+async function handleYoutubeMp3(req, res) {
+  const youtubeMp3Headers = {
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Referer": "https://v2.y2jar.cc/"
+  };
+
+  function youtubeMp3ExtractVideoId(url) {
+    const match = url.match(
+      /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i
+    );
+
+    return match ? match[1] : null;
+  }
+
+  function youtubeMp3Delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  try {
+    if (req.method !== "GET") {
+      return res.status(405).json({
+        status: false,
+        message: "Method harus GET."
+      });
+    }
+
+    const youtubeUrl = req.query?.url || req.query?.link;
+
+    if (!youtubeUrl) {
+      return res.status(400).json({
+        status: false,
+        message: "Parameter url wajib diisi.",
+        example: "/api/youtube-mp3?url=https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      });
+    }
+
+    const videoId = youtubeMp3ExtractVideoId(youtubeUrl);
+
+    if (!videoId) {
+      return res.status(400).json({
+        status: false,
+        message: "URL YouTube tidak valid.",
+        example: "/api/youtube-mp3?url=https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      });
+    }
+
+    // Ambil informasi video
+    let info = {};
+
+    try {
+      const infoRes = await axios.get(
+        `https://v2.y2jar.cc/i/${videoId}`,
+        {
+          headers: youtubeMp3Headers,
+          timeout: 15000
+        }
+      );
+
+      info = infoRes.data || {};
+    } catch (error) {
+      // Info gagal tidak menghentikan proses download
+    }
+
+    // Proses konversi MP3
+    let downloadUrl = null;
+
+    for (let i = 0; i < 12; i++) {
+      try {
+        const conversionRes = await axios.get(
+          `https://capi.y2jar.cc/scr/${videoId}?s=5`,
+          {
+            headers: youtubeMp3Headers,
+            timeout: 15000
+          }
+        );
+
+        const conversionData = conversionRes.data;
+
+        if (conversionData?.downloadUrl) {
+          downloadUrl = conversionData.downloadUrl;
+          break;
+        }
+
+        if (conversionData?.status) {
+          await youtubeMp3Delay(5000);
+        } else {
+          break;
+        }
+
+      } catch (error) {
+        if (error.response?.status === 404) {
+          return res.status(404).json({
+            status: false,
+            message: "Video tidak ditemukan atau tidak bisa dikonversi.",
+            error: error.message
+          });
+        }
+
+        await youtubeMp3Delay(3000);
+      }
+    }
+
+    if (!downloadUrl) {
+      return res.status(504).json({
+        status: false,
+        message: "Gagal mendapatkan URL download. Proses konversi timeout atau server sedang bermasalah."
+      });
+    }
+
+    return res.status(200).json({
+      status: true,
+      source: "YTMP3",
+      data: {
+        title: info.title || "Unknown Title",
+        author: info.author || "Unknown",
+        thumbnail:
+          info.thumbnailUrl ||
+          `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+        downloadUrl: downloadUrl
+      }
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: "Gagal memproses YouTube ke MP3.",
+      error: error.message
+    });
+  }
+}
 /* =========================================================
    Waifuimg
    ========================================================= */
@@ -2298,6 +2430,8 @@ export default async function handler(req, res) {
       return handleAlightSend(req, res);
     case "wikipedia":
       return handleWikipedia(req, res);
+case "youtube-mp3":
+  return handleYoutubeMp3(req, res);
     case "imgviral":
       return handleImgviral(req, res);
 case "waifuimg":
