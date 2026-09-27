@@ -4,7 +4,7 @@ export default {
   name: "TeraBox",
 
   description:
-    "Api link TeraBox untuk mengambil daftar gambar dan video di dalam file maupun folder secara rekursif.",
+    "Scrape link TeraBox untuk mengambil daftar gambar dan video di dalam file maupun folder secara rekursif.",
 
   category: "Downloader",
 
@@ -127,4 +127,20 @@ export default {
     {
       name: "data[].path",
       type: "string",
-      description: "Lokasi folder file
+      description: "Lokasi folder file di dalam TeraBox."
+    },
+    {
+      name: "data[].thumbnail",
+      type: "string",
+      description: "URL thumbnail media jika tersedia."
+    },
+    {
+      name: "data[].url",
+      type: "string",
+      description: "URL media yang dapat digunakan untuk membuka gambar atau video."
+    }
+  ],
+
+  exampleRequest:
+    "/api/terabox?url=https://terabox.com/s/XXXXXXXX&limit=100"
+};
