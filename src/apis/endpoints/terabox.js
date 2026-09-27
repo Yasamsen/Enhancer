@@ -4,7 +4,7 @@ export default {
   name: "TeraBox",
 
   description:
-    "Scrape link TeraBox untuk mengambil daftar gambar dan video di dalam file maupun folder secara rekursif.",
+    "Api link TeraBox untuk mengambil daftar gambar dan video di dalam file maupun folder secara rekursif.",
 
   category: "Downloader",
 
