@@ -49,6 +49,172 @@ async function ensureJsonBody(req) {
     req.body = {};
   }
 }
+//Lyrics Sportfy
+async function handleLyrics(req, res) {
+  try {
+    if (req.method !== "GET") {
+      return res.status(405).json({
+        status: false,
+        message: "Method harus GET."
+      });
+    }
+
+    let queryOrTrack = req.query?.q || req.query?.query || req.query?.url;
+    const artist = req.query?.artist || "";
+
+    if (!queryOrTrack) {
+      return res.status(400).json({
+        status: false,
+        message: "Parameter q wajib diisi.",
+        example: "/api/lyrics?q=Shape%20of%20You&artist=Ed%20Sheeran"
+      });
+    }
+
+    let trackName = queryOrTrack;
+    let artistName = artist;
+
+    // Jika input berupa URL Spotify
+    if (queryOrTrack.includes("spotify.com/track/")) {
+      const match = queryOrTrack.match(/track\/([a-zA-Z0-9]+)/);
+
+      if (match) {
+        const spotifyId = match[1];
+
+        try {
+          const oembed = await axios.get(
+            `https://open.spotify.com/oembed?url=https://open.spotify.com/track/${spotifyId}`,
+            {
+              timeout: 5000
+            }
+          );
+
+          trackName =
+            oembed.data?.title
+              ?.replace(/\(feat\..*?\)/i, "")
+              .trim() || trackName;
+
+          // Ambil artist dari Spotify embed
+          try {
+            const resEmbed = await axios.get(
+              `https://open.spotify.com/embed/track/${spotifyId}`,
+              {
+                timeout: 5000
+              }
+            );
+
+            const matchArtist = resEmbed.data.match(
+              /"artists":\[\{"name":"([^"]+)"/
+            );
+
+            if (matchArtist) {
+              artistName = matchArtist[1];
+            }
+          } catch (_) {}
+        } catch (_) {}
+      }
+    }
+
+    // ==========================================
+    // 1. EXACT SEARCH LRCLIB
+    // ==========================================
+
+    try {
+      const response = await axios.get(
+        "https://lrclib.net/api/get",
+        {
+          params: {
+            track_name: trackName,
+            artist_name: artistName
+          },
+          timeout: 10000
+        }
+      );
+
+      const data = response.data;
+
+      if (
+        data &&
+        (data.plainLyrics || data.syncedLyrics)
+      ) {
+        return res.status(200).json({
+          status: true,
+          source: "LRCLIB",
+          data: {
+            trackName: data.trackName || trackName,
+            artistName: data.artistName || artistName,
+            albumName: data.albumName || null,
+            duration: data.duration || null,
+            plainLyrics: data.plainLyrics || null,
+            syncedLyrics: data.syncedLyrics || null
+          }
+        });
+      }
+    } catch (_) {}
+
+    // ==========================================
+    // 2. FALLBACK FUZZY SEARCH
+    // ==========================================
+
+    try {
+      const searchRes = await axios.get(
+        "https://lrclib.net/api/search",
+        {
+          params: {
+            q: `${trackName} ${artistName}`.trim()
+          },
+          timeout: 10000
+        }
+      );
+
+      if (
+        Array.isArray(searchRes.data) &&
+        searchRes.data.length > 0
+      ) {
+        const best = searchRes.data[0];
+
+        if (
+          best.plainLyrics ||
+          best.syncedLyrics
+        ) {
+          return res.status(200).json({
+            status: true,
+            source: "LRCLIB",
+            data: {
+              trackName: best.trackName || trackName,
+              artistName: best.artistName || artistName,
+              albumName: best.albumName || null,
+              duration: best.duration || null,
+              plainLyrics: best.plainLyrics || null,
+              syncedLyrics: best.syncedLyrics || null
+            }
+          });
+        }
+      }
+    } catch (error) {
+      return res.status(500).json({
+        status: false,
+        message: "Gagal mengambil lirik.",
+        error: error.message
+      });
+    }
+
+    // ==========================================
+    // TIDAK DITEMUKAN
+    // ==========================================
+
+    return res.status(404).json({
+      status: false,
+      message: "Lirik lagu tidak ditemukan."
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: "Gagal memproses pencarian lirik.",
+      error: error.message
+    });
+  }
+}
 //Pinterest
 async function handlePinterest(req, res) {
   let browser = null;
@@ -2872,6 +3038,8 @@ case "autoai":
   return handleAutoAI(req, res);
 case "capcut":
   return handleCapcut(req, res);
+case "lyrics":
+  return handleLyrics(req, res);
     case "tempmail":
       return handleTempmail(req, res);
     default:
