@@ -1,7 +1,7 @@
 export default {
   slug: "capcut",
 
-  name: "CapCut Scraper",
+  name: "CapCut Downloader",
 
   description:
     "Mengambil metadata template CapCut tanpa menggunakan API resmi.",
