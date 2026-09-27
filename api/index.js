@@ -217,8 +217,6 @@ async function handleLyrics(req, res) {
 }
 //Pinterest
 async function handlePinterest(req, res) {
-  let browser = null;
-
   try {
     if (req.method !== "GET") {
       return res.status(405).json({
@@ -237,131 +235,331 @@ async function handlePinterest(req, res) {
       });
     }
 
-    const { chromium } = await import("playwright");
-
-    browser = await chromium.launch({
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-blink-features=AutomationControlled"
-      ]
-    });
-
-    const context = await browser.newContext({
-      userAgent:
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-      viewport: {
-        width: 1920,
-        height: 1080
-      },
-      locale: "en-US"
-    });
-
-    await context.addInitScript(() => {
-      Object.defineProperty(navigator, "webdriver", {
-        get: () => false
-      });
-    });
-
-    const page = await context.newPage();
-
-    let searchData = null;
-
-    page.on("response", async response => {
-      if (response.url().includes("BaseSearchResource")) {
-        try {
-          searchData = await response.json();
-        } catch {}
-      }
-    });
-
-    await page.goto(
-      `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(query)}`,
-      {
-        waitUntil: "domcontentloaded",
-        timeout: 30000
-      }
+    const limitRaw = Number(req.query?.limit || 25);
+    const limit = Math.min(
+      Math.max(Number.isFinite(limitRaw) ? limitRaw : 25, 1),
+      25
     );
 
-    await page.waitForTimeout(6000);
+    const searchUrl =
+      `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(query)}`;
 
-    const results =
-      searchData?.resource_response?.data?.results || [];
+    const response = await axios.get(searchUrl, {
+      timeout: 30000,
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+          "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Accept":
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.pinterest.com/",
+        "Cache-Control": "no-cache"
+      },
+      validateStatus: () => true
+    });
 
-    const pins = results
-      .filter(pin => pin?.id && String(pin.id).length > 10)
-      .slice(0, 25)
-      .map(pin => ({
-        id: String(pin.id),
-        img:
-          pin.images?.orig?.url ||
-          pin.images?.["736x"]?.url ||
-          "",
-        thumb:
-          pin.images?.["236x"]?.url ||
-          "",
-        title: "",
-        description: "",
-        isVideo: false,
-        videoUrl: ""
-      }));
+    if (response.status < 200 || response.status >= 300) {
+      return res.status(response.status).json({
+        status: false,
+        message: "Pinterest menolak permintaan.",
+        error: `HTTP ${response.status}`
+      });
+    }
 
-    for (const pin of pins) {
+    const html = response.data;
+
+    if (
+      typeof html !== "string" ||
+      !html ||
+      !html.includes("pinterest")
+    ) {
+      return res.status(502).json({
+        status: false,
+        message: "Data Pinterest tidak berhasil ditemukan."
+      });
+    }
+
+    const pins = [];
+    const seen = new Set();
+
+    /*
+     * Pinterest biasanya menyimpan data hasil pencarian
+     * di dalam HTML sebagai JSON.
+     */
+
+    const addPin = (pin) => {
+      if (!pin) return;
+
+      const id =
+        pin.id ||
+        pin.pinId ||
+        pin?.data?.id ||
+        "";
+
+      const pinId = String(id);
+
+      if (!pinId || pinId.length < 5 || seen.has(pinId)) {
+        return;
+      }
+
+      let img =
+        pin.img ||
+        pin.image ||
+        pin?.images?.orig?.url ||
+        pin?.images?.["736x"]?.url ||
+        pin?.images?.["564x"]?.url ||
+        pin?.images?.["474x"]?.url ||
+        "";
+
+      let thumb =
+        pin.thumb ||
+        pin.thumbnail ||
+        pin?.images?.["236x"]?.url ||
+        pin?.images?.["170x"]?.url ||
+        img ||
+        "";
+
+      let title =
+        pin.title ||
+        pin.name ||
+        pin?.grid_title ||
+        "";
+
+      let description =
+        pin.description ||
+        pin?.rich_metadata?.description ||
+        "";
+
+      let videoUrl =
+        pin.videoUrl ||
+        pin?.videos?.V_HLSV4?.url ||
+        pin?.videos?.V_720P?.url ||
+        pin?.videos?.V_EXP7?.url ||
+        pin?.videos?.V_HLSV4?.video_list?.V_HLSV4?.url ||
+        "";
+
+      if (!img && !thumb && !videoUrl) {
+        return;
+      }
+
+      seen.add(pinId);
+
+      pins.push({
+        id: pinId,
+        img: typeof img === "string" ? img : "",
+        thumb: typeof thumb === "string" ? thumb : "",
+        title: typeof title === "string" ? title : "",
+        description:
+          typeof description === "string" ? description : "",
+        isVideo: Boolean(videoUrl),
+        videoUrl:
+          typeof videoUrl === "string" ? videoUrl : ""
+      });
+    };
+
+    /*
+     * --------------------------------------------------
+     * METODE 1
+     * Cari object JSON yang memiliki struktur Pinterest.
+     * --------------------------------------------------
+     */
+
+    const jsonCandidates = [];
+
+    const scriptRegex =
+      /<script[^>]*>([\s\S]*?)<\/script>/gi;
+
+    let scriptMatch;
+
+    while ((scriptMatch = scriptRegex.exec(html)) !== null) {
+      const content = scriptMatch[1];
+
+      if (
+        content.includes('"id"') &&
+        (
+          content.includes('"images"') ||
+          content.includes('"grid_title"') ||
+          content.includes('"pin_id"')
+        )
+      ) {
+        jsonCandidates.push(content);
+      }
+    }
+
+    /*
+     * Parse script JSON yang valid.
+     */
+
+    for (const candidate of jsonCandidates) {
+      if (pins.length >= limit) break;
+
       try {
-        await page.goto(
-          `https://www.pinterest.com/pin/${pin.id}/`,
-          {
-            waitUntil: "domcontentloaded",
-            timeout: 15000
+        const parsed = JSON.parse(candidate);
+
+        const walk = (value, depth = 0) => {
+          if (pins.length >= limit || depth > 15) {
+            return;
           }
+
+          if (!value || typeof value !== "object") {
+            return;
+          }
+
+          if (Array.isArray(value)) {
+            for (const item of value) {
+              if (pins.length >= limit) break;
+              walk(item, depth + 1);
+            }
+            return;
+          }
+
+          const possibleId =
+            value.id ||
+            value.pin_id ||
+            value.pinId;
+
+          if (
+            possibleId &&
+            (
+              value.images ||
+              value.grid_title ||
+              value.title ||
+              value.image
+            )
+          ) {
+            addPin({
+              ...value,
+              id: possibleId
+            });
+          }
+
+          for (const key of Object.keys(value)) {
+            if (pins.length >= limit) break;
+
+            try {
+              walk(value[key], depth + 1);
+            } catch (_) {}
+          }
+        };
+
+        walk(parsed);
+      } catch (_) {}
+    }
+
+    /*
+     * --------------------------------------------------
+     * METODE 2
+     * Cari URL gambar Pinterest langsung dari HTML.
+     * --------------------------------------------------
+     */
+
+    if (pins.length < limit) {
+      const imageRegex =
+        /https?:\\?\/\\?\/i\.pinimg\.com\/[^"'\\\s<>]+/gi;
+
+      const imageMatches = html.match(imageRegex) || [];
+
+      for (let rawUrl of imageMatches) {
+        if (pins.length >= limit) break;
+
+        try {
+          let imageUrl = rawUrl
+            .replace(/\\u002F/g, "/")
+            .replace(/\\\//g, "/")
+            .replace(/&amp;/g, "&")
+            .replace(/\\u0026/g, "&");
+
+          imageUrl = imageUrl.replace(
+            /["'\\]+$/,
+            ""
+          );
+
+          const idMatch = imageUrl.match(
+            /\/([0-9]{8,})_[^/]*\.(?:jpg|jpeg|png|webp)/i
+          );
+
+          const id =
+            idMatch?.[1] ||
+            `image-${pins.length + 1}`;
+
+          if (!seen.has(id)) {
+            addPin({
+              id,
+              img: imageUrl,
+              thumb: imageUrl,
+              title: "",
+              description: ""
+            });
+          }
+        } catch (_) {}
+      }
+    }
+
+    /*
+     * --------------------------------------------------
+     * METODE 3
+     * Ambil canonical Pinterest pin URL dari HTML.
+     * --------------------------------------------------
+     */
+
+    if (pins.length < limit) {
+      const pinRegex =
+        /https?:\\?\/\\?\/www\.pinterest\.com\/pin\/([0-9]+)/gi;
+
+      let match;
+
+      while (
+        (match = pinRegex.exec(html)) !== null &&
+        pins.length < limit
+      ) {
+        const pinId = match[1];
+
+        if (!seen.has(pinId)) {
+          addPin({
+            id: pinId,
+            img: "",
+            thumb: "",
+            title: "",
+            description: ""
+          });
+        }
+      }
+    }
+
+    /*
+     * Buang item yang benar-benar tidak memiliki
+     * media atau ID yang berguna.
+     */
+
+    const finalPins = pins
+      .filter((pin) => {
+        return (
+          pin.id &&
+          (
+            pin.img ||
+            pin.thumb ||
+            pin.videoUrl
+          )
         );
+      })
+      .slice(0, limit);
 
-        await page.waitForTimeout(2000);
-
-        const meta = await page.evaluate(() => {
-          const og = prop =>
-            document.querySelector(
-              `meta[property="${prop}"]`
-            )?.content || "";
-
-          return {
-            ogTitle: og("og:title"),
-            ogDesc: og("og:description"),
-            ogImage: og("og:image"),
-            ogVideo:
-              og("og:video") ||
-              og("og:video:url"),
-            video:
-              document.querySelector(
-                "video source"
-              )?.src || ""
-          };
-        });
-
-        pin.title = meta.ogTitle || "";
-        pin.description = meta.ogDesc || "";
-
-        if (meta.ogImage && !pin.img) {
-          pin.img = meta.ogImage;
-        }
-
-        if (meta.ogVideo || meta.video) {
-          pin.isVideo = true;
-          pin.videoUrl =
-            meta.ogVideo || meta.video;
-        }
-
-      } catch {}
+    if (finalPins.length === 0) {
+      return res.status(404).json({
+        status: false,
+        message:
+          "Tidak ditemukan hasil Pinterest untuk pencarian tersebut.",
+        query
+      });
     }
 
     return res.status(200).json({
       status: true,
       source: "Pinterest",
       query,
-      total: pins.length,
-      data: pins
+      total: finalPins.length,
+      data: finalPins
     });
 
   } catch (error) {
@@ -370,13 +568,6 @@ async function handlePinterest(req, res) {
       message: "Gagal mengambil data Pinterest.",
       error: error.message
     });
-
-  } finally {
-    if (browser) {
-      try {
-        await browser.close();
-      } catch {}
-    }
   }
 }
 //Autoai
