@@ -49,6 +49,170 @@ async function ensureJsonBody(req) {
     req.body = {};
   }
 }
+//Pinterest
+async function handlePinterest(req, res) {
+  let browser = null;
+
+  try {
+    if (req.method !== "GET") {
+      return res.status(405).json({
+        status: false,
+        message: "Method harus GET."
+      });
+    }
+
+    const query = req.query?.q || req.query?.query;
+
+    if (!query) {
+      return res.status(400).json({
+        status: false,
+        message: "Parameter q wajib diisi.",
+        example: "/api/pinterest?q=anime"
+      });
+    }
+
+    const { chromium } = await import("playwright");
+
+    browser = await chromium.launch({
+      headless: true,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-blink-features=AutomationControlled"
+      ]
+    });
+
+    const context = await browser.newContext({
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+      viewport: {
+        width: 1920,
+        height: 1080
+      },
+      locale: "en-US"
+    });
+
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, "webdriver", {
+        get: () => false
+      });
+    });
+
+    const page = await context.newPage();
+
+    let searchData = null;
+
+    page.on("response", async response => {
+      if (response.url().includes("BaseSearchResource")) {
+        try {
+          searchData = await response.json();
+        } catch {}
+      }
+    });
+
+    await page.goto(
+      `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(query)}`,
+      {
+        waitUntil: "domcontentloaded",
+        timeout: 30000
+      }
+    );
+
+    await page.waitForTimeout(6000);
+
+    const results =
+      searchData?.resource_response?.data?.results || [];
+
+    const pins = results
+      .filter(pin => pin?.id && String(pin.id).length > 10)
+      .slice(0, 25)
+      .map(pin => ({
+        id: String(pin.id),
+        img:
+          pin.images?.orig?.url ||
+          pin.images?.["736x"]?.url ||
+          "",
+        thumb:
+          pin.images?.["236x"]?.url ||
+          "",
+        title: "",
+        description: "",
+        isVideo: false,
+        videoUrl: ""
+      }));
+
+    for (const pin of pins) {
+      try {
+        await page.goto(
+          `https://www.pinterest.com/pin/${pin.id}/`,
+          {
+            waitUntil: "domcontentloaded",
+            timeout: 15000
+          }
+        );
+
+        await page.waitForTimeout(2000);
+
+        const meta = await page.evaluate(() => {
+          const og = prop =>
+            document.querySelector(
+              `meta[property="${prop}"]`
+            )?.content || "";
+
+          return {
+            ogTitle: og("og:title"),
+            ogDesc: og("og:description"),
+            ogImage: og("og:image"),
+            ogVideo:
+              og("og:video") ||
+              og("og:video:url"),
+            video:
+              document.querySelector(
+                "video source"
+              )?.src || ""
+          };
+        });
+
+        pin.title = meta.ogTitle || "";
+        pin.description = meta.ogDesc || "";
+
+        if (meta.ogImage && !pin.img) {
+          pin.img = meta.ogImage;
+        }
+
+        if (meta.ogVideo || meta.video) {
+          pin.isVideo = true;
+          pin.videoUrl =
+            meta.ogVideo || meta.video;
+        }
+
+      } catch {}
+    }
+
+    return res.status(200).json({
+      status: true,
+      source: "Pinterest",
+      query,
+      total: pins.length,
+      data: pins
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: "Gagal mengambil data Pinterest.",
+      error: error.message
+    });
+
+  } finally {
+    if (browser) {
+      try {
+        await browser.close();
+      } catch {}
+    }
+  }
+}
 //Autoai
 async function handleAutoAI(req, res) {
   try {
