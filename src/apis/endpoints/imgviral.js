@@ -2,7 +2,7 @@ export default {
   slug: "imgviral",
   name: "Img Viral",
   description: "Get a random viral image.",
-  category: "Utility",
+  category: "Media",
   method: "GET",
   endpoint: "/api/imgviral",
   icon: "Image",
