@@ -4,7 +4,7 @@ export default {
   description:
     "Mengambil gambar atau video secara acak dari media repository Alya.",
 
-  category: "Media",
+  category: "Anime",
   method: "GET",
   endpoint: "/api/alya",
   icon: "Images",
