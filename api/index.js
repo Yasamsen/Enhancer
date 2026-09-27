@@ -60,164 +60,299 @@ async function handleTerabox(req, res) {
       });
     }
 
-    const shareUrl = req.query?.url;
+    const shareUrl = String(req.query?.url || "").trim();
 
     if (!shareUrl) {
       return res.status(400).json({
         status: false,
         message: "Parameter url wajib diisi.",
-        example: "/api/terabox?url=https://terabox.com/s/xxxxxxxx"
+        example:
+          "/api/terabox?url=https://www.terabox.com/sharing/link?surl=XXXXXXXX"
       });
     }
 
-    if (!/^https?:\/\/([a-z0-9-]+\.)?(terabox|1024terabox|teraboxapp|teraboxshare)\./i.test(shareUrl)) {
+    // =====================================================
+    // NORMALISASI URL
+    // =====================================================
+
+    let parsedUrl;
+
+    try {
+      parsedUrl = new URL(shareUrl);
+    } catch {
       return res.status(400).json({
         status: false,
         message: "URL TeraBox tidak valid."
       });
     }
 
+    const hostname = parsedUrl.hostname.toLowerCase();
+
+    const allowedDomains = [
+      "terabox.com",
+      "www.terabox.com",
+      "terabox.app",
+      "www.terabox.app",
+      "1024terabox.com",
+      "www.1024terabox.com",
+      "1024tera.com",
+      "www.1024tera.com",
+      "teraboxapp.com",
+      "www.teraboxapp.com",
+      "teraboxshare.com",
+      "www.teraboxshare.com"
+    ];
+
+    const validDomain = allowedDomains.some(
+      domain =>
+        hostname === domain ||
+        hostname.endsWith("." + domain)
+    );
+
+    if (!validDomain) {
+      return res.status(400).json({
+        status: false,
+        message: "URL bukan link TeraBox yang valid."
+      });
+    }
+
+    // =====================================================
+    // LIMIT
+    // =====================================================
+
     const limitRaw = Number(req.query?.limit || 100);
+
     const limit = Math.min(
-      Math.max(Number.isFinite(limitRaw) ? limitRaw : 100, 1),
+      Math.max(
+        Number.isFinite(limitRaw) ? Math.floor(limitRaw) : 100,
+        1
+      ),
       500
     );
+
+    // =====================================================
+    // HEADERS
+    // =====================================================
 
     const headers = {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+
       "Accept":
-        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.9",
-      "Referer": "https://www.terabox.com/",
-      "Connection": "keep-alive"
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+
+      "Accept-Language":
+        "en-US,en;q=0.9",
+
+      "Cache-Control":
+        "no-cache",
+
+      "Pragma":
+        "no-cache",
+
+      "Referer":
+        "https://www.terabox.com/"
     };
 
     // =====================================================
     // 1. BUKA SHARE PAGE
     // =====================================================
 
-    const pageResponse = await axios.get(shareUrl, {
-      headers,
-      timeout: 20000,
-      maxRedirects: 5,
-      validateStatus: () => true
-    });
+    let pageResponse;
 
-    if (pageResponse.status < 200 || pageResponse.status >= 400) {
+    try {
+      pageResponse = await axios.get(shareUrl, {
+        headers,
+        timeout: 25000,
+        maxRedirects: 10,
+        validateStatus: () => true
+      });
+    } catch (error) {
       return res.status(502).json({
         status: false,
-        message: "Gagal membuka halaman share TeraBox.",
+        message: "Gagal mengakses halaman TeraBox.",
+        error: error.message
+      });
+    }
+
+    if (
+      pageResponse.status < 200 ||
+      pageResponse.status >= 400
+    ) {
+      return res.status(502).json({
+        status: false,
+        message: "TeraBox menolak halaman share.",
         error: `HTTP ${pageResponse.status}`
       });
     }
 
-    const html = String(pageResponse.data || "");
+    const html = String(
+      pageResponse.data || ""
+    );
 
     // =====================================================
-    // 2. AMBIL shorturl / surl
+    // 2. FINAL URL
     // =====================================================
 
     let finalUrl = shareUrl;
 
-    if (pageResponse.request?.res?.responseUrl) {
-      finalUrl = pageResponse.request.res.responseUrl;
-    }
+    try {
+      const responseUrl =
+        pageResponse.request?.res?.responseUrl;
+
+      if (responseUrl) {
+        finalUrl = responseUrl;
+      }
+    } catch {}
+
+    // =====================================================
+    // 3. AMBIL SURL
+    // =====================================================
 
     let shorturl = "";
 
     try {
-      const parsed = new URL(finalUrl);
+      const finalParsed =
+        new URL(finalUrl);
 
       shorturl =
-        parsed.searchParams.get("surl") ||
-        parsed.searchParams.get("shorturl") ||
+        finalParsed.searchParams.get("surl") ||
+        finalParsed.searchParams.get("shorturl") ||
         "";
-    } catch (_) {}
+    } catch {}
 
     if (!shorturl) {
-      const match =
-        finalUrl.match(/\/s\/([^/?#]+)/i);
+      try {
+        const originalParsed =
+          new URL(shareUrl);
 
-      if (match) {
+        shorturl =
+          originalParsed.searchParams.get("surl") ||
+          originalParsed.searchParams.get("shorturl") ||
+          "";
+      } catch {}
+    }
+
+    // /s/XXXXXXXX
+    if (!shorturl) {
+      const match =
+        finalUrl.match(
+          /\/s\/([^/?#]+)/i
+        );
+
+      if (match?.[1]) {
         shorturl = match[1];
       }
     }
 
     if (!shorturl) {
       const match =
-        shareUrl.match(/\/s\/([^/?#]+)/i);
+        shareUrl.match(
+          /\/s\/([^/?#]+)/i
+        );
 
-      if (match) {
+      if (match?.[1]) {
         shorturl = match[1];
+      }
+    }
+
+    // encoded surl
+    if (!shorturl) {
+      const match =
+        html.match(
+          /["']surl["']\s*[:=]\s*["']([^"']+)["']/i
+        );
+
+      if (match?.[1]) {
+        shorturl = match[1];
+      }
+    }
+
+    if (!shorturl) {
+      const match =
+        html.match(
+          /surl%22%3A%22([^"%]+)%22/i
+        );
+
+      if (match?.[1]) {
+        shorturl =
+          decodeURIComponent(match[1]);
       }
     }
 
     if (!shorturl) {
       return res.status(400).json({
         status: false,
-        message: "Short URL TeraBox tidak ditemukan."
+        message:
+          "SURL TeraBox tidak ditemukan.",
+        finalUrl
       });
     }
 
-    // Beberapa format TeraBox menggunakan awalan 1.
-    if (shorturl.startsWith("1") && shorturl.length > 1) {
-      shorturl = shorturl.substring(1);
-    }
+    shorturl =
+      decodeURIComponent(shorturl)
+        .replace(/^1/, "");
 
     // =====================================================
-    // 3. AMBIL jsToken
+    // 4. AMBIL JSTOKEN
     // =====================================================
 
     let jsToken = "";
 
-    const jsTokenPatterns = [
+    const tokenPatterns = [
       /window\.jsToken\s*=\s*["']([^"']+)["']/i,
-      /jsToken["']?\s*[:=]\s*["']([^"']+)["']/i,
+
+      /["']jsToken["']\s*[:=]\s*["']([^"']+)["']/i,
+
       /jsToken%22%3A%22([^"%]+)%22/i,
-      /jsToken%22([^%]+)%22/i,
-      /"jsToken":"([^"]+)"/i
+
+      /jsToken%22%3A([^,}]+)/i,
+
+      /"jsToken":"([^"]+)"/i,
+
+      /'jsToken':'([^']+)'/i,
+
+      /fn%28%22([^%]+)%22%29/i,
+
+      /fn\("([^"]+)"\)/i
     ];
 
-    for (const pattern of jsTokenPatterns) {
-      const match = html.match(pattern);
+    for (const pattern of tokenPatterns) {
+      const match =
+        html.match(pattern);
 
       if (match?.[1]) {
-        jsToken = match[1];
+        try {
+          jsToken =
+            decodeURIComponent(match[1]);
+        } catch {
+          jsToken = match[1];
+        }
+
         break;
       }
     }
 
-    /*
-     * Beberapa halaman TeraBox menyimpan token dalam bentuk
-     * encoded string seperti fn("TOKEN").
-     */
-
-    if (!jsToken) {
-      const match = html.match(
-        /fn%28%22([^%]+)%22%29/i
-      );
-
-      if (match?.[1]) {
-        jsToken = decodeURIComponent(match[1]);
-      }
-    }
-
     // =====================================================
-    // 4. AMBIL dp-logid
+    // 5. DP LOG ID
     // =====================================================
 
     let dpLogId = "";
 
     const logPatterns = [
       /dp-logid=([^&"'\\]+)/i,
-      /"dp-logid"\s*:\s*"([^"]+)"/i,
-      /dpLogId["']?\s*[:=]\s*["']([^"']+)["']/i
+
+      /["']dp-logid["']\s*:\s*["']([^"']+)["']/i,
+
+      /["']dpLogId["']\s*[:=]\s*["']([^"']+)["']/i,
+
+      /dp-logid%3D([^&%"']+)/i
     ];
 
     for (const pattern of logPatterns) {
-      const match = html.match(pattern);
+      const match =
+        html.match(pattern);
 
       if (match?.[1]) {
         dpLogId = match[1];
@@ -226,28 +361,82 @@ async function handleTerabox(req, res) {
     }
 
     // =====================================================
-    // 5. REQUEST FILE LIST
+    // 6. COOKIE
     // =====================================================
 
-    const listHeaders = {
-      ...headers,
-      "Accept": "application/json, text/plain, */*",
-      "Referer": finalUrl,
-      "X-Requested-With": "XMLHttpRequest"
+    let cookie = "";
+
+    try {
+      const setCookie =
+        pageResponse.headers[
+          "set-cookie"
+        ];
+
+      if (Array.isArray(setCookie)) {
+        cookie = setCookie
+          .map(item =>
+            item.split(";")[0]
+          )
+          .join("; ");
+      }
+    } catch {}
+
+    // =====================================================
+    // 7. API HEADERS
+    // =====================================================
+
+    const apiHeaders = {
+      "User-Agent":
+        headers["User-Agent"],
+
+      "Accept":
+        "application/json, text/plain, */*",
+
+      "Accept-Language":
+        "en-US,en;q=0.9",
+
+      "Referer":
+        finalUrl,
+
+      "Origin":
+        "https://www.terabox.com",
+
+      "X-Requested-With":
+        "XMLHttpRequest",
+
+      ...(cookie
+        ? { Cookie: cookie }
+        : {})
     };
 
-    async function teraboxGetList(dir = "") {
+    // =====================================================
+    // 8. REQUEST LIST
+    // =====================================================
+
+    async function requestList(dir = "") {
       const params = {
         app_id: "250528",
         web: "1",
         channel: "0",
-        jsToken,
-        "dp-logid": dpLogId,
+
+        jsToken:
+          jsToken || "",
+
+        "dp-logid":
+          dpLogId || "",
+
         page: "1",
-        num: "100",
+
+        num: String(
+          Math.min(limit, 100)
+        ),
+
         by: "name",
+
         order: "asc",
+
         site_referer: "",
+
         shorturl
       };
 
@@ -257,30 +446,37 @@ async function handleTerabox(req, res) {
         params.root = "1";
       }
 
-      const urls = [
+      const endpoints = [
         "https://www.terabox.com/share/list",
         "https://www.terabox.app/share/list",
-        "https://www.1024tera.com/share/list"
+        "https://1024terabox.com/share/list"
       ];
 
-      let lastError = null;
+      let lastResponse = null;
 
-      for (const apiUrl of urls) {
+      for (const endpoint of endpoints) {
         try {
-          const response = await axios.get(apiUrl, {
-            params,
-            headers: listHeaders,
-            timeout: 20000,
-            validateStatus: () => true
-          });
+          const response =
+            await axios.get(
+              endpoint,
+              {
+                params,
+                headers: apiHeaders,
+                timeout: 25000,
+                validateStatus: () => true
+              }
+            );
+
+          lastResponse = response;
+
+          const data =
+            response.data;
 
           if (
             response.status >= 200 &&
             response.status < 300 &&
-            response.data
+            data
           ) {
-            const data = response.data;
-
             if (
               data.errno === 0 ||
               data.errno === "0" ||
@@ -288,31 +484,23 @@ async function handleTerabox(req, res) {
             ) {
               return data;
             }
-
-            lastError = new Error(
-              data.errmsg ||
-              data.message ||
-              `TeraBox errno: ${data.errno}`
-            );
-          } else {
-            lastError = new Error(
-              `HTTP ${response.status}`
-            );
           }
-        } catch (error) {
-          lastError = error;
-        }
+        } catch {}
       }
 
-      throw lastError || new Error("Gagal mengambil daftar file.");
+      const errorInfo =
+        lastResponse?.data || {};
+
+      throw new Error(
+        errorInfo.errmsg ||
+        errorInfo.message ||
+        `TeraBox API gagal. HTTP ${lastResponse?.status || "unknown"}`
+      );
     }
 
     // =====================================================
-    // 6. REKURSIF TELUSURI FOLDER
+    // 9. MEDIA TYPE
     // =====================================================
-
-    const files = [];
-    const visitedDirs = new Set();
 
     const imageExtensions = [
       ".jpg",
@@ -339,83 +527,135 @@ async function handleTerabox(req, res) {
       ".ts"
     ];
 
-    function getFileType(filename, category) {
-      const lower = String(filename || "").toLowerCase();
+    function getMediaType(
+      filename,
+      category
+    ) {
+      const name =
+        String(filename || "")
+          .toLowerCase();
 
       if (
-        imageExtensions.some(ext =>
-          lower.endsWith(ext)
+        imageExtensions.some(
+          ext => name.endsWith(ext)
         )
       ) {
         return "image";
       }
 
       if (
-        videoExtensions.some(ext =>
-          lower.endsWith(ext)
+        videoExtensions.some(
+          ext => name.endsWith(ext)
         )
       ) {
         return "video";
       }
 
-      const cat = String(category || "").toLowerCase();
+      const cat =
+        String(category || "")
+          .toLowerCase();
 
       if (
+        cat === "3" ||
         cat.includes("image") ||
         cat.includes("picture")
       ) {
         return "image";
       }
 
-      if (cat.includes("video")) {
+      if (
+        cat === "1" ||
+        cat.includes("video")
+      ) {
         return "video";
       }
 
       return "file";
     }
 
-    function normalizeFile(item, folderPath) {
-      const filename =
+    // =====================================================
+    // 10. NORMALIZE FILE
+    // =====================================================
+
+    function normalizeFile(
+      item,
+      folderPath
+    ) {
+      const name =
         item.server_filename ||
         item.filename ||
         item.name ||
         "unknown";
 
-      const type = getFileType(
-        filename,
-        item.category
-      );
+      const type =
+        getMediaType(
+          name,
+          item.category
+        );
 
       return {
-        name: filename,
+        name,
+
         type,
-        size: Number(item.size || 0),
-        path: folderPath || "/",
+
+        size:
+          Number(item.size || 0),
+
+        path:
+          folderPath || "/",
+
         thumbnail:
           item.thumbs?.url3 ||
           item.thumbs?.url2 ||
           item.thumbs?.url1 ||
           item.thumbnail ||
           "",
+
         url:
           item.dlink ||
           item.download_url ||
           item.downloadLink ||
+          item.url ||
+          "",
+
+        fs_id:
+          item.fs_id ||
+          item.id ||
+          "",
+
+        md5:
+          item.md5 ||
           ""
       };
     }
 
-    async function crawlDirectory(
+    // =====================================================
+    // 11. REKURSIF
+    // =====================================================
+
+    const files = [];
+
+    const visitedDirs =
+      new Set();
+
+    let firstListError = null;
+
+    async function crawl(
       dir = "",
       folderPath = ""
     ) {
-      if (files.length >= limit) {
+      if (
+        files.length >= limit
+      ) {
         return;
       }
 
-      const dirKey = dir || "/";
+      const dirKey =
+        dir || "/";
 
-      if (visitedDirs.has(dirKey)) {
+      if (
+        visitedDirs.has(dirKey)
+      ) {
         return;
       }
 
@@ -424,21 +664,28 @@ async function handleTerabox(req, res) {
       let data;
 
       try {
-        data = await teraboxGetList(dir);
+        data =
+          await requestList(dir);
       } catch (error) {
-        /*
-         * Jangan langsung menghentikan seluruh proses.
-         * Folder lain tetap boleh diproses.
-         */
+        if (!firstListError) {
+          firstListError =
+            error.message;
+        }
+
         return;
       }
 
-      const list = Array.isArray(data?.list)
-        ? data.list
-        : [];
+      const list =
+        Array.isArray(data?.list)
+          ? data.list
+          : [];
 
-      for (const item of list) {
-        if (files.length >= limit) {
+      for (
+        const item of list
+      ) {
+        if (
+          files.length >= limit
+        ) {
           break;
         }
 
@@ -459,28 +706,24 @@ async function handleTerabox(req, res) {
             item.server_filename ||
             itemName;
 
-          const childFolderPath =
+          const childPath =
             folderPath
               ? `${folderPath}/${itemName}`
               : itemName;
 
-          await crawlDirectory(
+          await crawl(
             childDir,
-            childFolderPath
+            childPath
           );
 
           continue;
         }
 
-        const file = normalizeFile(
-          item,
-          folderPath
-        );
-
-        /*
-         * Kita hanya masukkan gambar/video karena
-         * endpoint ini memang dibuat untuk media.
-         */
+        const file =
+          normalizeFile(
+            item,
+            folderPath
+          );
 
         if (
           file.type === "image" ||
@@ -491,216 +734,115 @@ async function handleTerabox(req, res) {
       }
     }
 
-    await crawlDirectory();
+    await crawl();
 
     // =====================================================
-    // 7. HITUNG MEDIA
+    // 12. JIKA GAGAL
     // =====================================================
 
-    const images = files.filter(
-      file => file.type === "image"
-    );
-
-    const videos = files.filter(
-      file => file.type === "video"
-    );
-
-    // =====================================================
-    // 8. RESPONSE
-    // =====================================================
-
-    if (files.length === 0) {
-      return res.status(404).json({
+    if (
+      files.length === 0 &&
+      firstListError
+    ) {
+      return res.status(502).json({
         status: false,
         message:
-          "Tidak ditemukan gambar atau video pada link TeraBox tersebut.",
-        query: shareUrl
+          "TeraBox tidak mengembalikan daftar file.",
+        error:
+          firstListError,
+        shorturl,
+        finalUrl,
+        jsTokenFound:
+          Boolean(jsToken),
+        dpLogIdFound:
+          Boolean(dpLogId)
       });
     }
+
+    // =====================================================
+    // 13. HITUNG
+    // =====================================================
+
+    const images =
+      files.filter(
+        file =>
+          file.type === "image"
+      );
+
+    const videos =
+      files.filter(
+        file =>
+          file.type === "video"
+      );
+
+    // =====================================================
+    // 14. KOSONG
+    // =====================================================
+
+    if (
+      files.length === 0
+    ) {
+      return res.status(404).json({
+        status: false,
+
+        message:
+          "Tidak ditemukan gambar atau video pada link TeraBox tersebut.",
+
+        query:
+          shareUrl,
+
+        finalUrl,
+
+        shorturl,
+
+        jsTokenFound:
+          Boolean(jsToken),
+
+        dpLogIdFound:
+          Boolean(dpLogId),
+
+        visitedDirectories:
+          visitedDirs.size
+      });
+    }
+
+    // =====================================================
+    // 15. SUCCESS
+    // =====================================================
 
     return res.status(200).json({
       status: true,
-      source: "TeraBox",
-      url: shareUrl,
-      total: files.length,
-      images: images.length,
-      videos: videos.length,
+
+      source:
+        "TeraBox",
+
+      url:
+        shareUrl,
+
+      total:
+        files.length,
+
+      images:
+        images.length,
+
+      videos:
+        videos.length,
+
       limit,
-      data: files
+
+      data:
+        files
     });
 
   } catch (error) {
     return res.status(500).json({
       status: false,
-      message: "Gagal melakukan scrape TeraBox.",
-      error: error.message
-    });
-  }
-}
 
-//Lyrics Sportfy
-async function handleLyrics(req, res) {
-  try {
-    if (req.method !== "GET") {
-      return res.status(405).json({
-        status: false,
-        message: "Method harus GET."
-      });
-    }
+      message:
+        "Gagal melakukan scrape TeraBox.",
 
-    let queryOrTrack = req.query?.q || req.query?.query || req.query?.url;
-    const artist = req.query?.artist || "";
-
-    if (!queryOrTrack) {
-      return res.status(400).json({
-        status: false,
-        message: "Parameter q wajib diisi.",
-        example: "/api/lyrics?q=Shape%20of%20You&artist=Ed%20Sheeran"
-      });
-    }
-
-    let trackName = queryOrTrack;
-    let artistName = artist;
-
-    // Jika input berupa URL Spotify
-    if (queryOrTrack.includes("spotify.com/track/")) {
-      const match = queryOrTrack.match(/track\/([a-zA-Z0-9]+)/);
-
-      if (match) {
-        const spotifyId = match[1];
-
-        try {
-          const oembed = await axios.get(
-            `https://open.spotify.com/oembed?url=https://open.spotify.com/track/${spotifyId}`,
-            {
-              timeout: 5000
-            }
-          );
-
-          trackName =
-            oembed.data?.title
-              ?.replace(/\(feat\..*?\)/i, "")
-              .trim() || trackName;
-
-          // Ambil artist dari Spotify embed
-          try {
-            const resEmbed = await axios.get(
-              `https://open.spotify.com/embed/track/${spotifyId}`,
-              {
-                timeout: 5000
-              }
-            );
-
-            const matchArtist = resEmbed.data.match(
-              /"artists":\[\{"name":"([^"]+)"/
-            );
-
-            if (matchArtist) {
-              artistName = matchArtist[1];
-            }
-          } catch (_) {}
-        } catch (_) {}
-      }
-    }
-
-    // ==========================================
-    // 1. EXACT SEARCH LRCLIB
-    // ==========================================
-
-    try {
-      const response = await axios.get(
-        "https://lrclib.net/api/get",
-        {
-          params: {
-            track_name: trackName,
-            artist_name: artistName
-          },
-          timeout: 10000
-        }
-      );
-
-      const data = response.data;
-
-      if (
-        data &&
-        (data.plainLyrics || data.syncedLyrics)
-      ) {
-        return res.status(200).json({
-          status: true,
-          source: "LRCLIB",
-          data: {
-            trackName: data.trackName || trackName,
-            artistName: data.artistName || artistName,
-            albumName: data.albumName || null,
-            duration: data.duration || null,
-            plainLyrics: data.plainLyrics || null,
-            syncedLyrics: data.syncedLyrics || null
-          }
-        });
-      }
-    } catch (_) {}
-
-    // ==========================================
-    // 2. FALLBACK FUZZY SEARCH
-    // ==========================================
-
-    try {
-      const searchRes = await axios.get(
-        "https://lrclib.net/api/search",
-        {
-          params: {
-            q: `${trackName} ${artistName}`.trim()
-          },
-          timeout: 10000
-        }
-      );
-
-      if (
-        Array.isArray(searchRes.data) &&
-        searchRes.data.length > 0
-      ) {
-        const best = searchRes.data[0];
-
-        if (
-          best.plainLyrics ||
-          best.syncedLyrics
-        ) {
-          return res.status(200).json({
-            status: true,
-            source: "LRCLIB",
-            data: {
-              trackName: best.trackName || trackName,
-              artistName: best.artistName || artistName,
-              albumName: best.albumName || null,
-              duration: best.duration || null,
-              plainLyrics: best.plainLyrics || null,
-              syncedLyrics: best.syncedLyrics || null
-            }
-          });
-        }
-      }
-    } catch (error) {
-      return res.status(500).json({
-        status: false,
-        message: "Gagal mengambil lirik.",
-        error: error.message
-      });
-    }
-
-    // ==========================================
-    // TIDAK DITEMUKAN
-    // ==========================================
-
-    return res.status(404).json({
-      status: false,
-      message: "Lirik lagu tidak ditemukan."
-    });
-
-  } catch (error) {
-    return res.status(500).json({
-      status: false,
-      message: "Gagal memproses pencarian lirik.",
-      error: error.message
+      error:
+        error.message
     });
   }
 }
