@@ -56,6 +56,93 @@ async function ensureJsonBody(req) {
     req.body = {};
   }
 }
+//jadihijab
+async function handleJadihijab(req, res) {
+  if (req.method !== "GET") {
+    return res.status(405).json({
+      status: false,
+      message: "Method tidak diizinkan.",
+      error: "Gunakan method GET."
+    });
+  }
+
+  try {
+    const imageUrl =
+      req.query?.url ||
+      req.query?.image ||
+      req.query?.link;
+
+    if (!imageUrl) {
+      return res.status(400).json({
+        status: false,
+        message: "Parameter url wajib diisi.",
+        example: "/api/jadihijab?url=https://example.com/gambar.jpg"
+      });
+    }
+
+    try {
+      const parsedUrl = new URL(imageUrl);
+
+      if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+        throw new Error("Invalid protocol");
+      }
+    } catch {
+      return res.status(400).json({
+        status: false,
+        message: "URL gambar tidak valid.",
+        example: "/api/jadihijab?url=https://example.com/gambar.jpg"
+      });
+    }
+
+    const { data } = await axios.get(
+      "https://api.ikyyxd.my.id/edit/nanobananav3",
+      {
+        params: {
+          prompt: "ubahkan foto tersebut menjadi hijab",
+          url: imageUrl
+        },
+        timeout: 120000
+      }
+    );
+
+    if (!data?.status) {
+      return res.status(500).json({
+        status: false,
+        message: "Gagal memproses gambar.",
+        error: data?.message || "API AI gagal memproses gambar."
+      });
+    }
+
+    const resultUrl = data?.result?.result_url;
+
+    if (!resultUrl) {
+      return res.status(500).json({
+        status: false,
+        message: "Hasil gambar tidak ditemukan.",
+        error: "API tidak mengembalikan result_url."
+      });
+    }
+
+    return res.status(200).json({
+      status: true,
+      source: "Nano Banana V3",
+      data: {
+        prompt: "ubahkan foto tersebut menjadi hijab",
+        original_url: imageUrl,
+        result_url: resultUrl
+      }
+    });
+
+  } catch (error) {
+    console.error("Jadihijab Error:", error);
+
+    return res.status(500).json({
+      status: false,
+      message: "Gagal mengubah gambar menjadi hijab.",
+      error: error.message
+    });
+  }
+}
 // ============================================================
 // FACEBOOK DOWNLOADER
 // ============================================================
@@ -5635,6 +5722,8 @@ case "capcut":
   return handleFacebook(req, res);
 case "lyrics":
   return handleLyrics(req, res);
+  case "jadihijab":
+  return handleJadihijab(req, res);
 case "ai-image":
       return handleAiImage(req, res);
     case "tempmail":
