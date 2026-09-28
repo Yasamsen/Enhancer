@@ -5,6 +5,8 @@ import formidable from "formidable";
 import fs from "fs";
 import QRCode from "qrcode";
 
+import vm from "node:vm";
+
 // Semua endpoint digabung ke 1 file supaya hanya dihitung 1 Serverless
 // Function oleh Vercel (Hobby plan cuma boleh maksimal 12 function).
 // Body parser dimatikan secara global karena nano-banana butuh raw stream
@@ -48,6 +50,843 @@ async function ensureJsonBody(req) {
   } else {
     req.body = {};
   }
+}
+//Pinterest 
+const PINTEREST_BASE = "https://id.pinterest.com";
+
+const PINTEREST_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+
+
+async function handlePinterestFull(req, res) {
+  try {
+    if (req.method !== "GET") {
+      return res.status(405).json({
+        status: false,
+        message: "Method harus GET."
+      });
+    }
+
+    const pinUrl = req.query?.url;
+
+    if (!pinUrl) {
+      return res.status(400).json({
+        status: false,
+        message: "Parameter url wajib diisi.",
+        example:
+          "/api/pinterest-full?url=https://id.pinterest.com/pin/986218018420964709/"
+      });
+    }
+
+    let parsedUrl;
+
+    try {
+      parsedUrl = new URL(pinUrl);
+    } catch {
+      return res.status(400).json({
+        status: false,
+        message: "URL Pinterest tidak valid."
+      });
+    }
+
+    const allowedHosts = [
+      "pinterest.com",
+      "www.pinterest.com",
+      "id.pinterest.com",
+      "pin.it"
+    ];
+
+    if (!allowedHosts.includes(parsedUrl.hostname.toLowerCase())) {
+      return res.status(400).json({
+        status: false,
+        message: "URL Pinterest tidak didukung."
+      });
+    }
+
+    const pinMatch = pinUrl.match(/pin\/(\d+)/);
+
+    if (!pinMatch) {
+      return res.status(400).json({
+        status: false,
+        message:
+          "ID pin tidak ditemukan. Gunakan URL pin Pinterest lengkap."
+      });
+    }
+
+    const pinId = pinMatch[1];
+
+    const maxComments = pinterestLimit(
+      req.query?.["max-comments"],
+      100,
+      500
+    );
+
+    const userPinsPages = pinterestLimit(
+      req.query?.["user-pins"],
+      3,
+      20
+    );
+
+    const delayMs = pinterestLimit(
+      req.query?.delay,
+      700,
+      3000
+    );
+
+    const jar = new Map();
+
+    function storeCookies(response) {
+      const raw =
+        typeof response.headers.getSetCookie === "function"
+          ? response.headers.getSetCookie()
+          : [];
+
+      for (const line of raw) {
+        const part = line.split(";")[0];
+        const index = part.indexOf("=");
+
+        if (index > 0) {
+          jar.set(
+            part.slice(0, index).trim(),
+            part.slice(index + 1).trim()
+          );
+        }
+      }
+    }
+
+    function cookieHeader() {
+      return [...jar.entries()]
+        .map(([key, value]) => `${key}=${value}`)
+        .join("; ");
+    }
+
+    async function pinterestFetch(url, options = {}) {
+      const response = await fetch(url, {
+        ...options,
+        signal: AbortSignal.timeout(25000),
+        headers: {
+          "User-Agent": PINTEREST_UA,
+          ...(options.headers || {}),
+          ...(cookieHeader()
+            ? { Cookie: cookieHeader() }
+            : {})
+        }
+      });
+
+      storeCookies(response);
+      return response;
+    }
+
+    async function getJSON(
+      path,
+      paramsObj,
+      referer,
+      srcUrl,
+      handler
+    ) {
+      const qs = new URLSearchParams(paramsObj);
+
+      const response = await pinterestFetch(
+        `${PINTEREST_BASE}${path}?${qs}`,
+        {
+          headers: {
+            Accept:
+              "application/json, text/javascript, */*, q=0.01",
+            Referer: referer,
+            "X-Requested-With": "XMLHttpRequest",
+            "X-CSRFToken": jar.get("csrftoken") || "",
+            "X-APP-VERSION": "d1c132e",
+            ...(srcUrl
+              ? {
+                  "X-Pinterest-Source-Url": srcUrl,
+                  "X-Pinterest-PWS-Handler":
+                    handler || "www/pin/[id].js"
+                }
+              : {})
+          }
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Pinterest HTTP ${response.status}: ${path}`
+        );
+      }
+
+      return response.json();
+    }
+
+    function resourceOptionsBookmark(payload) {
+      return payload.resource?.options?.bookmarks?.[0];
+    }
+
+    function extractRelayResponses(html) {
+      const captured = [];
+
+      const sandbox = {
+        window: {},
+        document: {
+          getElementById: () => null
+        }
+      };
+
+      sandbox.window.__PWS_RELAY_REGISTER_COMPLETED_REQUEST__ =
+        (...args) => captured.push(args);
+
+      const regex =
+        /<script[^>]*type="text\/javascript"[^>]*>([\s\S]*?)<\/script>/g;
+
+      let match;
+
+      while ((match = regex.exec(html))) {
+        if (
+          !match[1].includes(
+            "__PWS_RELAY_REGISTER_COMPLETED_REQUEST__("
+          )
+        ) {
+          continue;
+        }
+
+        try {
+          vm.runInNewContext(match[1], sandbox, {
+            timeout: 1000
+          });
+        } catch {
+          // Abaikan script yang tidak bisa diproses.
+        }
+      }
+
+      return captured
+        .map((args) => {
+          const value = args[args.length - 1];
+
+          if (typeof value === "string") {
+            try {
+              return JSON.parse(
+                decodeURIComponent(value)
+              );
+            } catch {
+              return null;
+            }
+          }
+
+          return value && typeof value === "object"
+            ? value
+            : null;
+        })
+        .filter(Boolean);
+    }
+
+    async function initSession() {
+      await pinterestFetch(`${PINTEREST_BASE}/`);
+    }
+
+    async function fetchPinData(id) {
+      const response = await pinterestFetch(
+        `${PINTEREST_BASE}/pin/${id}/`
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `HTTP ${response.status} saat membuka halaman pin`
+        );
+      }
+
+      const html = await response.text();
+      const blocks = extractRelayResponses(html);
+
+      let entity = null;
+
+      for (const block of blocks) {
+        const data =
+          block?.data?.v3GetPinQueryv2?.data;
+
+        if (data?.id) {
+          entity = data;
+          break;
+        }
+      }
+
+      if (!entity) {
+        throw new Error(
+          "Data pin tidak ditemukan di halaman Pinterest."
+        );
+      }
+
+      let aggregatedPinId = null;
+
+      const htmlMatch = html.match(
+        /aggregatedPinData"\s*:\s*\{\s*"entityId"\s*:\s*"(\d+)"/
+      );
+
+      if (htmlMatch) {
+        aggregatedPinId = htmlMatch[1];
+      }
+
+      if (
+        !aggregatedPinId &&
+        entity.aggregatedPinData?.id
+      ) {
+        try {
+          aggregatedPinId = Buffer.from(
+            entity.aggregatedPinData.id,
+            "base64"
+          )
+            .toString()
+            .split(":")[1];
+        } catch {
+          // Abaikan ID yang tidak dapat didekode.
+        }
+      }
+
+      return {
+        entity,
+        aggregatedPinId
+      };
+    }
+
+    function mapPin(entity) {
+      const id = entity.entityId || entity.id;
+
+      return {
+        id,
+        url: `${PINTEREST_BASE}/pin/${id}/`,
+        title:
+          entity.title ||
+          entity.gridTitle ||
+          entity.closeupUnifiedTitle ||
+          null,
+        description:
+          entity.description ||
+          entity.seoDescription ||
+          null,
+        alt_text: entity.seoAltText || null,
+        created_at: entity.createdAt || null,
+        domain:
+          entity.domain ||
+          entity.linkDomain ||
+          null,
+        source_link:
+          entity.link ||
+          entity.trackedLink ||
+          null,
+        is_video: Boolean(entity.isVideo),
+        repin_count: entity.repinCount ?? null,
+        saves:
+          entity.aggregatedPinData?.aggregatedStats?.saves ??
+          null,
+        dominant_color: entity.dominantColor || null,
+        category: entity.category || null,
+        comments_disabled: Boolean(
+          entity.commentsDisabled
+        ),
+        board: entity.board
+          ? {
+              id: entity.board.entityId || null,
+              name:
+                entity.board.name ||
+                (entity.board.url || "")
+                  .split("/")
+                  .filter(Boolean)
+                  .pop() ||
+                null,
+              url: entity.board.url
+                ? `${PINTEREST_BASE}${entity.board.url}`
+                : null,
+              is_collaborative: Boolean(
+                entity.board.isCollaborative
+              )
+            }
+          : null,
+        images: {
+          orig:
+            entity.images_orig?.url ||
+            entity.imageLargeUrl ||
+            null,
+          x736: entity.images_736x?.url || null,
+          x564: entity.images_564x?.url || null,
+          x474: entity.images_474x?.url || null,
+          x236: entity.images_236x?.url || null
+        },
+        video:
+          entity.videos?.video_list?.V_720P?.url ||
+          entity.videos?.video_list?.V_HLSV4 ||
+          null,
+        pinner_username:
+          entity.pinner?.username || null
+      };
+    }
+
+    async function fetchUserProfile(username) {
+      const payload = await getJSON(
+        "/resource/UserResource/get/",
+        {
+          source_url: `/${username}/`,
+          data: JSON.stringify({
+            options: {
+              username,
+              field_set_key: "profile"
+            },
+            context: {}
+          }),
+          _: String(Date.now())
+        },
+        `${PINTEREST_BASE}/${username}/`,
+        `/${username}/`,
+        "www/[username].js"
+      );
+
+      const data =
+        payload.resource_response?.data || {};
+
+      return {
+        id: data.id || null,
+        username: data.username || username,
+        full_name:
+          data.full_name ||
+          data.first_name ||
+          null,
+        bio: data.about || null,
+        profile_url:
+          `${PINTEREST_BASE}/${data.username || username}/`,
+        avatar:
+          data.image_large_url ||
+          data.image_medium_url ||
+          null,
+        cover_image:
+          data.background_image_url || null,
+        website: data.website_url || null,
+        followers: data.follower_count ?? null,
+        following: data.following_count ?? null,
+        pins_count: data.pin_count ?? null,
+        boards_count: data.board_count ?? null,
+        is_verified: Boolean(
+          data.is_verified_identity ||
+          data.verified_identity
+        ),
+        is_verified_merchant: Boolean(
+          data.is_verified_merchant
+        ),
+        created_at: data.created_at || null,
+        location: data.location || null,
+        country: data.country_name || null,
+        is_private_profile: Boolean(
+          data.is_private_profile
+        )
+      };
+    }
+
+    async function fetchUserPins(
+      username,
+      maxPages,
+      delay
+    ) {
+      const pins = [];
+      let bookmarks = [];
+      let page = 0;
+
+      while (page < maxPages) {
+        const options = {
+          username,
+          field_set_key: "grid_item",
+          page_size: 25,
+          redux_normalize_feed: true
+        };
+
+        if (bookmarks.length) {
+          options.bookmarks = bookmarks;
+        }
+
+        const payload = await getJSON(
+          "/resource/UserPinsResource/get/",
+          {
+            source_url: `/${username}/`,
+            data: JSON.stringify({
+              options,
+              context: {}
+            }),
+            _: String(Date.now())
+          },
+          `${PINTEREST_BASE}/${username}/`,
+          `/${username}/`,
+          "www/[username].js"
+        );
+
+        const items =
+          payload.resource_response?.data || [];
+
+        const mapped = items
+          .filter((pin) => pin?.id)
+          .map((pin) => ({
+            id: pin.id,
+            url: `${PINTEREST_BASE}/pin/${pin.id}/`,
+            title:
+              pin.title ||
+              pin.grid_title ||
+              null,
+            description: pin.description || null,
+            created_at: pin.created_at || null,
+            repin_count: pin.repin_count ?? null,
+            link: pin.link || null,
+            domain: pin.domain || null,
+            image:
+              pin.images?.["474x"]?.url ||
+              pin.image_medium_url ||
+              null,
+            board:
+              pin.board?.name ||
+              pin.board?.url ||
+              null
+          }));
+
+        pins.push(...mapped);
+        page++;
+
+        const bookmark =
+          resourceOptionsBookmark(payload);
+
+        if (
+          !bookmark ||
+          bookmark === "-end-" ||
+          !mapped.length
+        ) {
+          break;
+        }
+
+        bookmarks = [bookmark];
+        await pinterestSleep(delay);
+      }
+
+      return pins;
+    }
+
+    async function fetchComments(
+      id,
+      aggregatedId,
+      limit,
+      delay
+    ) {
+      const comments = [];
+      let bookmarks = [];
+
+      while (true) {
+        const options = {
+          aggregated_pin_id: String(aggregatedId),
+          comment_featured_ids: [],
+          page_size: 25,
+          redux_normalize_feed: true,
+          is_reversed: false
+        };
+
+        if (bookmarks.length) {
+          options.bookmarks = bookmarks;
+        }
+
+        const payload = await getJSON(
+          "/resource/UnifiedCommentsResource/get/",
+          {
+            source_url: `/pin/${id}/`,
+            data: JSON.stringify({
+              options,
+              context: {}
+            }),
+            _: String(Date.now())
+          },
+          `${PINTEREST_BASE}/pin/${id}/`,
+          `/pin/${id}/`
+        );
+
+        const items =
+          payload.resource_response?.data || [];
+
+        const batch = items.filter(
+          (item) =>
+            item &&
+            item.type === "aggregatedcomment"
+        );
+
+        for (const comment of batch) {
+          comments.push({
+            id: comment.id,
+            text: (comment.text || "").trim(),
+            created_at: comment.created_at || null,
+            user: {
+              id: comment.user?.id || null,
+              username:
+                comment.user?.username || null,
+              full_name:
+                comment.user?.full_name ||
+                comment.user?.first_name ||
+                null,
+              avatar:
+                comment.user?.image_medium_url ||
+                null,
+              profile_url:
+                comment.user?.username
+                  ? `${PINTEREST_BASE}/${comment.user.username}/`
+                  : null,
+              is_private: Boolean(
+                comment.user?.is_private_profile
+              )
+            },
+            reactions:
+              comment.reaction_counts || {},
+            reaction_total: Object.values(
+              comment.reaction_counts || {}
+            ).reduce(
+              (total, value) =>
+                total + (Number(value) || 0),
+              0
+            ),
+            reply_count:
+              comment.comment_count || 0,
+            helpful_count:
+              comment.helpful_count || 0,
+            highlighted_by_owner: Boolean(
+              comment.highlighted_by_pin_owner
+            ),
+            is_edited: Boolean(comment.is_edited),
+            tagged_users: (
+              comment.tagged_users || []
+            ).map((user) => user.username),
+            replies: []
+          });
+
+          if (comments.length >= limit) {
+            return comments;
+          }
+        }
+
+        if (!items.length || !batch.length) {
+          break;
+        }
+
+        const bookmark =
+          resourceOptionsBookmark(payload);
+
+        if (!bookmark || bookmark === "-end-") {
+          break;
+        }
+
+        bookmarks = [bookmark];
+        await pinterestSleep(delay);
+      }
+
+      return comments;
+    }
+
+    async function fetchReplies(
+      id,
+      commentId,
+      delay
+    ) {
+      const replies = [];
+      let bookmarks = [];
+
+      while (true) {
+        const options = {
+          isUnifiedComment: true,
+          objectId: String(commentId),
+          redux_normalize_feed: true,
+          page_size: 25
+        };
+
+        if (bookmarks.length) {
+          options.bookmarks = bookmarks;
+        }
+
+        const payload = await getJSON(
+          "/resource/AggregatedCommentReplyFeedResource/get/",
+          {
+            source_url: `/pin/${id}/`,
+            data: JSON.stringify({
+              options,
+              context: {}
+            }),
+            _: String(Date.now())
+          },
+          `${PINTEREST_BASE}/pin/${id}/`,
+          `/pin/${id}/`
+        );
+
+        const items =
+          payload.resource_response?.data || [];
+
+        for (const comment of items) {
+          if (
+            !comment ||
+            comment.type !== "aggregatedcomment"
+          ) {
+            continue;
+          }
+
+          replies.push({
+            id: comment.id,
+            text: (comment.text || "").trim(),
+            created_at: comment.created_at || null,
+            user: {
+              id: comment.user?.id || null,
+              username:
+                comment.user?.username || null,
+              full_name:
+                comment.user?.full_name ||
+                comment.user?.first_name ||
+                null,
+              avatar:
+                comment.user?.image_medium_url ||
+                null,
+              profile_url:
+                comment.user?.username
+                  ? `${PINTEREST_BASE}/${comment.user.username}/`
+                  : null,
+              is_private: Boolean(
+                comment.user?.is_private_profile
+              )
+            },
+            reactions:
+              comment.reaction_counts || {},
+            reaction_total: Object.values(
+              comment.reaction_counts || {}
+            ).reduce(
+              (total, value) =>
+                total + (Number(value) || 0),
+              0
+            ),
+            is_edited: Boolean(comment.is_edited)
+          });
+        }
+
+        const bookmark =
+          resourceOptionsBookmark(payload);
+
+        if (
+          !bookmark ||
+          bookmark === "-end-" ||
+          !items.length
+        ) {
+          break;
+        }
+
+        bookmarks = [bookmark];
+        await pinterestSleep(delay);
+      }
+
+      return replies;
+    }
+
+    // ================================
+    // MAIN
+    // ================================
+
+    await initSession();
+
+    const { entity, aggregatedPinId } =
+      await fetchPinData(pinId);
+
+    const pin = mapPin(entity);
+
+    if (!aggregatedPinId) {
+      throw new Error(
+        "aggregated_pin_id tidak ditemukan."
+      );
+    }
+
+    let creator = null;
+
+    if (pin.pinner_username) {
+      creator = await fetchUserProfile(
+        pin.pinner_username
+      );
+    }
+
+    let comments = [];
+    let totalReplies = 0;
+
+    if (!pin.comments_disabled && maxComments > 0) {
+      comments = await fetchComments(
+        pinId,
+        aggregatedPinId,
+        maxComments,
+        delayMs
+      );
+
+      const needReplies = comments
+        .filter((comment) => comment.reply_count > 0)
+        .slice(0, 30);
+
+      for (const comment of needReplies) {
+        comment.replies = await fetchReplies(
+          pinId,
+          comment.id,
+          delayMs
+        );
+
+        totalReplies += comment.replies.length;
+        await pinterestSleep(delayMs);
+      }
+    }
+
+    let creatorPins = [];
+
+    if (creator?.username && userPinsPages > 0) {
+      creatorPins = await fetchUserPins(
+        creator.username,
+        userPinsPages,
+        delayMs
+      );
+    }
+
+    return res.status(200).json({
+      status: true,
+      source: "Pinterest",
+      data: {
+        scraped_at: new Date().toISOString(),
+        source_url:
+          `${PINTEREST_BASE}/pin/${pinId}/`,
+        pin: {
+          ...pin,
+          creator
+        },
+        creator_pins: creatorPins,
+        comments,
+        stats: {
+          total_creator_pins: creatorPins.length,
+          total_comments: comments.length,
+          total_replies: totalReplies
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error("Pinterest Full Error:", error);
+
+    return res.status(502).json({
+      status: false,
+      message: "Gagal mengambil data Pinterest.",
+      error: error.message
+    });
+  }
+}
+
+
+function pinterestLimit(value, defaultValue, maxValue) {
+  if (value === undefined || value === null || value === "") {
+    return defaultValue;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+
+  if (!Number.isFinite(parsed)) {
+    return defaultValue;
+  }
+
+  return Math.max(0, Math.min(parsed, maxValue));
+}
+
+
+function pinterestSleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 //tt search
 /* =========================================================
@@ -3533,6 +4372,8 @@ case "autoai":
   return handleTiktokSearch(req, res);
 case "capcut":
   return handleCapcut(req, res);
+  case "pinterest-full":
+  return handlePinterestFull(req, res);
 case "lyrics":
   return handleLyrics(req, res);
     case "tempmail":
