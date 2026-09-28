@@ -5,10 +5,6 @@ import formidable from "formidable";
 import fs from "fs";
 import QRCode from "qrcode";
 
-import { wrapper } from "axios-cookiejar-support";
-import { CookieJar } from "tough-cookie";
-
-
 // Semua endpoint digabung ke 1 file supaya hanya dihitung 1 Serverless
 // Function oleh Vercel (Hobby plan cuma boleh maksimal 12 function).
 // Body parser dimatikan secara global karena nano-banana butuh raw stream
@@ -67,12 +63,9 @@ async function handleTiktokSearch(req, res) {
       });
     }
 
-    const query = req.query?.q || req.query?.query || "";
+    const query = req.query?.q || req.query?.query;
 
-    const countRaw = req.query?.count || "10";
-    const region = req.query?.region || "ID";
-
-    if (!query.trim()) {
+    if (!query || !String(query).trim()) {
       return res.status(400).json({
         status: false,
         message: "Parameter q wajib diisi.",
@@ -81,46 +74,27 @@ async function handleTiktokSearch(req, res) {
       });
     }
 
-    let count = parseInt(countRaw, 10);
+    let count = parseInt(req.query?.count || "10", 10);
 
     if (Number.isNaN(count)) {
       count = 10;
     }
 
-    /*
-     * Batasi jumlah agar request tidak terlalu besar.
-     */
     count = Math.max(1, Math.min(count, 50));
 
+    const region = req.query?.region || "ID";
+
     const BASE_URL = "https://getdl.space";
-
-    /*
-     * CookieJar baru untuk setiap request.
-     *
-     * /api/session akan memberikan cookie/session.
-     * Cookie tersebut kemudian otomatis digunakan
-     * ketika memanggil /api/search/tiktok.
-     */
-    const jar = new CookieJar();
-
-    const client = wrapper(
-      axios.create({
-        jar,
-        withCredentials: true,
-        timeout: 15000,
-        maxRedirects: 5
-      })
-    );
 
     const HEADERS = {
       "User-Agent":
         "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36",
 
-      "Accept-Language":
-        "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
-
       "Accept":
         "application/json, text/plain, */*",
+
+      "Accept-Language":
+        "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
 
       "Referer":
         "https://getdl.space/id/search/tiktok",
@@ -130,16 +104,32 @@ async function handleTiktokSearch(req, res) {
     };
 
 
-    /* =====================================================
-       STEP 1 - BUAT SESSION
-       ===================================================== */
+    /*
+     * ==========================================
+     * 1. BUAT SESSION
+     * ==========================================
+     */
 
-    const sessionRes = await client.get(
+    const sessionRes = await axios.get(
       `${BASE_URL}/api/session`,
       {
-        headers: HEADERS
+        headers: HEADERS,
+        timeout: 15000,
+
+        validateStatus: () => true
       }
     );
+
+    if (
+      sessionRes.status < 200 ||
+      sessionRes.status >= 300
+    ) {
+      return res.status(502).json({
+        status: false,
+        message: "Gagal menghubungi server GetDL.",
+        upstreamStatus: sessionRes.status
+      });
+    }
 
     if (
       !sessionRes.data?.success ||
@@ -147,23 +137,42 @@ async function handleTiktokSearch(req, res) {
     ) {
       return res.status(502).json({
         status: false,
-        message: "Gagal membuat session GetDL.",
-        error:
-          typeof sessionRes.data === "string"
-            ? sessionRes.data
-            : JSON.stringify(sessionRes.data)
+        message: "GetDL gagal membuat session.",
+        data: sessionRes.data
       });
     }
 
-    const sessionId = sessionRes.data.sessionId;
+    const sessionId =
+      sessionRes.data.sessionId;
 
 
-    /* =====================================================
-       STEP 2 - SEARCH TIKTOK
-       ===================================================== */
+    /*
+     * ==========================================
+     * 2. AMBIL COOKIE DARI SET-COOKIE
+     * ==========================================
+     */
+
+    let cookie = "";
+
+    const setCookie =
+      sessionRes.headers?.["set-cookie"];
+
+    if (Array.isArray(setCookie)) {
+      cookie = setCookie
+        .map(item => item.split(";")[0])
+        .filter(Boolean)
+        .join("; ");
+    }
+
+
+    /*
+     * ==========================================
+     * 3. REQUEST SEARCH
+     * ==========================================
+     */
 
     const payload = {
-      query: query.trim(),
+      query: String(query).trim(),
       count,
       cursor: 0,
       region,
@@ -171,46 +180,68 @@ async function handleTiktokSearch(req, res) {
       sortType: 0
     };
 
-    const searchRes = await client.post(
+    const searchHeaders = {
+      ...HEADERS,
+
+      "Content-Type":
+        "application/json",
+
+      "Cookie":
+        cookie
+    };
+
+    const searchRes = await axios.post(
       `${BASE_URL}/api/search/tiktok`,
       payload,
       {
-        headers: {
-          ...HEADERS,
-          "Content-Type": "application/json"
-        }
+        headers: searchHeaders,
+        timeout: 30000,
+
+        validateStatus: () => true
       }
     );
 
-    if (searchRes.status !== 200) {
+
+    /*
+     * ==========================================
+     * 4. CEK RESPONSE
+     * ==========================================
+     */
+
+    if (
+      searchRes.status < 200 ||
+      searchRes.status >= 300
+    ) {
       return res.status(502).json({
         status: false,
         message:
-          `Server GetDL menolak request. HTTP ${searchRes.status}.`
+          "Server GetDL menolak request pencarian.",
+        upstreamStatus:
+          searchRes.status,
+        data:
+          searchRes.data
       });
     }
 
     if (!searchRes.data?.success) {
       return res.status(502).json({
         status: false,
-        message: "GetDL gagal melakukan pencarian TikTok.",
-        error: searchRes.data?.message ||
-          JSON.stringify(searchRes.data)
+        message:
+          "GetDL gagal melakukan pencarian TikTok.",
+        data:
+          searchRes.data
       });
     }
 
 
-    /* =====================================================
-       STEP 3 - AMBIL DATA
-       ===================================================== */
+    /*
+     * ==========================================
+     * 5. AMBIL DATA VIDEO
+     * ==========================================
+     */
 
-    const responseData = searchRes.data?.data || {};
-
-    const totalResults =
-      responseData.totalResults || 0;
-
-    const hasMore =
-      responseData.hasMore || false;
+    const responseData =
+      searchRes.data?.data || {};
 
     const videos =
       Array.isArray(responseData.videos)
@@ -218,77 +249,95 @@ async function handleTiktokSearch(req, res) {
         : [];
 
 
-    /* =====================================================
-       STEP 4 - NORMALISASI HASIL
-       ===================================================== */
+    /*
+     * ==========================================
+     * 6. FORMAT HASIL
+     * ==========================================
+     */
 
-    const results = videos.map((video, index) => {
-      let createdAt = null;
+    const results = videos.map(
+      (video, index) => {
 
-      if (video.createdAt) {
-        try {
-          createdAt = new Date(
-            video.createdAt
-          ).toLocaleString("id-ID");
-        } catch {
-          createdAt = video.createdAt;
+        let createdAt =
+          video.createdAt || null;
+
+        if (createdAt) {
+          try {
+            createdAt =
+              new Date(createdAt)
+                .toLocaleString("id-ID");
+          } catch {}
         }
+
+        return {
+          index: index + 1,
+
+          title:
+            video.title || "",
+
+          duration:
+            video.duration !== undefined &&
+            video.duration !== null
+              ? `${video.duration}s`
+              : null,
+
+          play_url:
+            video.playUrl || "",
+
+          cover_url:
+            video.cover || "",
+
+          created_at:
+            createdAt
+        };
       }
-
-      return {
-        index: index + 1,
-
-        title:
-          video.title ||
-          "",
-
-        duration:
-          video.duration !== undefined &&
-          video.duration !== null
-            ? `${video.duration}s`
-            : null,
-
-        play_url:
-          video.playUrl ||
-          "",
-
-        cover_url:
-          video.cover ||
-          "",
-
-        created_at:
-          createdAt
-      };
-    });
+    );
 
 
-    /* =====================================================
-       RESPONSE
-       ===================================================== */
+    /*
+     * ==========================================
+     * 7. RESPONSE API
+     * ==========================================
+     */
 
     return res.status(200).json({
       status: true,
+
       source: "GetDL",
+
       data: {
-        query: query.trim(),
+        query:
+          String(query).trim(),
+
         region,
-        total_results: totalResults,
-        has_more: hasMore,
-        count: results.length,
+
+        total_results:
+          responseData.totalResults || 0,
+
+        has_more:
+          Boolean(responseData.hasMore),
+
+        count:
+          results.length,
+
         results
       }
     });
 
   } catch (error) {
 
-    /*
-     * Error dari Axios
-     */
+    console.error(
+      "TikTok Search Error:",
+      error
+    );
+
     if (error.response) {
       return res.status(502).json({
         status: false,
-        message: "GetDL mengalami error.",
-        upstreamStatus: error.response.status,
+        message:
+          "Terjadi error pada server GetDL.",
+        upstreamStatus:
+          error.response.status,
         error:
           error.response.data ||
           error.message
@@ -297,8 +346,10 @@ async function handleTiktokSearch(req, res) {
 
     return res.status(500).json({
       status: false,
-      message: "Gagal melakukan pencarian TikTok.",
-      error: error.message
+      message:
+        "Gagal melakukan pencarian TikTok.",
+      error:
+        error.message
     });
   }
 }
