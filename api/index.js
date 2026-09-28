@@ -54,44 +54,35 @@ async function ensureJsonBody(req) {
     req.body = {};
   }
 }
-//aibody
-// ============================================================
-// AI IMAGE - LIVE3D
-// GET /api/ai-image?prompt=...&negative_prompt=...
-// ============================================================
-
-const AI_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+//aibod
+const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
 MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCwlO+boC6cwRo3UfXVBadaYwcX
-0zKS2fuVNY2qZ0dgwb1NJ+/Q9FeAosL4ONiosD71on3PVYqRUlL5045mvH2K9i8b
+0zKS2fuVNY2qZ0dgwb1NJ+/Q9FeAosL4ONiosD71on3PVqRUlL5045mvH2K9i8b
 AFVMEip7E6RMK6tKAAif7xzZrXnP1GZ5Rijtqdgwh+YmzTo39cuBCsZqK9oEoeQ3
 r/myG9S+9cR5huTuFQIDAQAB
 -----END PUBLIC KEY-----`;
 
-const AI_APP_ID = "aifaceswap";
-const AI_U_ID = "1H5tRtzsBkqXcaJ";
-const AI_FN_NAME = "demo-ai-body-v1";
-const AI_BRAND_KEY = "8f3f0c7387123ae0";
+const APP_ID = "aifaceswap";
+const U_ID = "1H5tRtzsBkqXcaJ";
+const FN_NAME = "demo-ai-body-v1";
+const BRAND_KEY = "8f3f0c7387123ae0";
 
-// INTERNAL ONLY
-const AI_MODEL = "AbsoluteReality_v1.8.1.safetensors";
-const AI_CFG = 7;
-
-const AI_THEME_VERSION =
+const THEME_VERSION =
   "83EmcUoQTUv50LhNx0VrdcK8rcGexcP35FcZDcpgWsAXEyO4xqL5shCY6sFIWB2Q";
 
 function generateRandomString(len) {
   const chars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
-  let result = "";
+  let res = "";
 
   for (let i = 0; i < len; i++) {
-    result += chars.charAt(
+    res += chars.charAt(
       Math.floor(Math.random() * chars.length)
     );
   }
 
-  return result;
+  return res;
 }
 
 function aesenc(data, key) {
@@ -115,7 +106,7 @@ function rsaenc(data) {
 
   const encrypted = crypto.publicEncrypt(
     {
-      key: AI_PUBLIC_KEY,
+      key: PUBLIC_KEY,
       padding: crypto.constants.RSA_PKCS1_PADDING
     },
     buffer
@@ -149,14 +140,14 @@ function gencryptoheaders(type, fp = null) {
 
   const signStr =
     type === "upload"
-      ? `${AI_APP_ID}:${r}:${s}`
-      : `${AI_APP_ID}:${AI_U_ID}:${n}:${r}:${s}`;
+      ? `${APP_ID}:${r}:${s}`
+      : `${APP_ID}:${U_ID}:${n}:${r}:${s}`;
 
   return {
     fp: fingerPrint,
 
     fp1: aesenc(
-      `${AI_APP_ID}:${fingerPrint}`,
+      `${APP_ID}:${fingerPrint}`,
       i
     ),
 
@@ -171,30 +162,33 @@ function gencryptoheaders(type, fp = null) {
   };
 }
 
+
 // ============================================================
 // CREATE JOB
 // ============================================================
 
 async function createAiBodyJob(
   prompt,
-  negativePrompt
+  negativePrompt,
+  model,
+  cfg
 ) {
   const cryptoHeaders =
     gencryptoheaders("create");
 
   const payload = {
-    fn_name: AI_FN_NAME,
+    fn_name: FN_NAME,
 
     call_type: 3,
 
     data: "",
 
     input: {
-      cfg: AI_CFG,
+      cfg: cfg,
 
       lora: [],
 
-      model: AI_MODEL,
+      model: model,
 
       negative_prompt:
         negativePrompt ||
@@ -205,10 +199,15 @@ async function createAiBodyJob(
       request_from: 9
     },
 
-    origin_from: AI_BRAND_KEY,
+    origin_from: BRAND_KEY,
 
     request_from: 9
   };
+
+  console.log(
+    "[CREATE PAYLOAD]",
+    JSON.stringify(payload, null, 2)
+  );
 
   const response = await axios.post(
     "https://app-v1.live3d.io/aitools/of/create",
@@ -216,10 +215,10 @@ async function createAiBodyJob(
     {
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 Chrome/139.0.0.0 Mobile Safari/537.36",
+          "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36",
 
         "theme-version":
-          AI_THEME_VERSION,
+          THEME_VERSION,
 
         ...cryptoHeaders
       },
@@ -231,7 +230,7 @@ async function createAiBodyJob(
   );
 
   console.log(
-    "LIVE3D CREATE:",
+    "[CREATE RESPONSE]",
     response.status,
     response.data
   );
@@ -241,32 +240,26 @@ async function createAiBodyJob(
     response.status >= 300
   ) {
     throw new Error(
-      `Live3D HTTP ${response.status}: ${JSON.stringify(response.data)}`
+      `HTTP ${response.status}: ${JSON.stringify(response.data)}`
     );
   }
 
   if (response.data?.code !== 200) {
-  console.error("========== LIVE3D DEBUG ==========");
-  console.error("HTTP STATUS:", response.status);
-  console.error("RESPONSE:", JSON.stringify(response.data, null, 2));
-  console.error("HEADERS:", JSON.stringify(response.headers, null, 2));
-  console.error("==================================");
+    throw new Error(
+      JSON.stringify({
+        code: response.data?.code,
+        message: response.data?.message,
+        data: response.data?.data || {}
+      })
+    );
+  }
 
-  throw new Error(
-    JSON.stringify({
-      upstream_http: response.status,
-      upstream_code: response.data?.code,
-      upstream_message: response.data?.message,
-      upstream_data: response.data?.data || null
-    })
-  );
-}
   const taskId =
     response.data?.data?.task_id;
 
   if (!taskId) {
     throw new Error(
-      "Live3D tidak memberikan task_id."
+      "Server tidak memberikan task_id."
     );
   }
 
@@ -276,24 +269,28 @@ async function createAiBodyJob(
   };
 }
 
+
 // ============================================================
-// CHECK JOB
+// CHECK STATUS
 // ============================================================
 
 async function cekjob(taskId, fp) {
   const cryptoHeaders =
-    gencryptoheaders("check", fp);
+    gencryptoheaders(
+      "check",
+      fp
+    );
 
   const payload = {
     task_id: taskId,
 
-    fn_name: AI_FN_NAME,
+    fn_name: FN_NAME,
 
     call_type: 3,
 
     request_from: 9,
 
-    origin_from: AI_BRAND_KEY
+    origin_from: BRAND_KEY
   };
 
   const response = await axios.post(
@@ -302,10 +299,10 @@ async function cekjob(taskId, fp) {
     {
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 Chrome/139.0.0.0 Mobile Safari/537.36",
+          "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36",
 
         "theme-version":
-          AI_THEME_VERSION,
+          THEME_VERSION,
 
         ...cryptoHeaders
       },
@@ -317,7 +314,7 @@ async function cekjob(taskId, fp) {
   );
 
   console.log(
-    "LIVE3D CHECK:",
+    "[CHECK RESPONSE]",
     response.status,
     response.data
   );
@@ -327,15 +324,16 @@ async function cekjob(taskId, fp) {
     response.status >= 300
   ) {
     throw new Error(
-      `Live3D check HTTP ${response.status}: ${JSON.stringify(response.data)}`
+      `HTTP ${response.status}: ${JSON.stringify(response.data)}`
     );
   }
 
   return response.data?.data || {};
 }
 
+
 // ============================================================
-// API ENDPOINT
+// AI IMAGE ENDPOINT
 // ============================================================
 
 async function handleAiImage(req, res) {
@@ -351,8 +349,19 @@ async function handleAiImage(req, res) {
       req.query?.prompt;
 
     const negativePrompt =
-      req.query?.negative_prompt ||
-      "";
+      req.query?.negative_prompt || "";
+
+    const model =
+      req.query?.model ||
+      "AbsoluteReality_v1.8.1.safetensors";
+
+    const cfgRaw =
+      req.query?.cfg;
+
+    const cfg =
+      cfgRaw !== undefined
+        ? Number(cfgRaw)
+        : 7;
 
     if (
       !prompt ||
@@ -364,7 +373,17 @@ async function handleAiImage(req, res) {
           "Parameter prompt wajib diisi.",
 
         example:
-          "/api/ai-image?prompt=anime%20girl&negative_prompt=bad%20quality"
+          "/api/ai-image?prompt=anime%20girl"
+      });
+    }
+
+    if (
+      !Number.isFinite(cfg)
+    ) {
+      return res.status(400).json({
+        status: false,
+        message:
+          "Parameter cfg harus berupa angka."
       });
     }
 
@@ -373,6 +392,9 @@ async function handleAiImage(req, res) {
 
     const cleanNegativePrompt =
       String(negativePrompt).trim();
+
+    const cleanModel =
+      String(model).trim();
 
     if (cleanPrompt.length > 1000) {
       return res.status(400).json({
@@ -393,24 +415,36 @@ async function handleAiImage(req, res) {
     const start =
       Date.now();
 
+    // ========================================================
     // CREATE
+    // ========================================================
+
     const {
       taskId,
       fp
     } = await createAiBodyJob(
       cleanPrompt,
-      cleanNegativePrompt
+      cleanNegativePrompt,
+      cleanModel,
+      cfg
     );
+
+    console.log(
+      `[AI] Task created: ${taskId}`
+    );
+
+    // ========================================================
+    // POLLING
+    // ========================================================
 
     let result = null;
 
+    let attempts = 0;
+
     const maxAttempts = 30;
 
-    // POLLING
-    for (
-      let attempt = 0;
-      attempt < maxAttempts;
-      attempt++
+    while (
+      attempts < maxAttempts
     ) {
       await new Promise(
         resolve =>
@@ -424,18 +458,15 @@ async function handleAiImage(req, res) {
         );
 
       console.log(
-        `AI ATTEMPT ${attempt + 1}:`,
-        result?.status
+        `[AI] Attempt ${attempts + 1}: Status ${result?.status}`
       );
 
-      // SUCCESS
       if (
         result?.status === 2
       ) {
         break;
       }
 
-      // FAILED / SAFETY
       if (
         result?.status === 3
       ) {
@@ -449,9 +480,14 @@ async function handleAiImage(req, res) {
             taskId
         });
       }
+
+      attempts++;
     }
 
+    // ========================================================
     // TIMEOUT
+    // ========================================================
+
     if (
       !result ||
       result.status !== 2
@@ -460,14 +496,17 @@ async function handleAiImage(req, res) {
         status: false,
 
         message:
-          "Polling AI timeout.",
+          "Polling timeout.",
 
         task_id:
           taskId
       });
     }
 
-    // IMAGE TIDAK ADA
+    // ========================================================
+    // RESULT
+    // ========================================================
+
     if (
       !result.result_image
     ) {
@@ -475,28 +514,27 @@ async function handleAiImage(req, res) {
         status: false,
 
         message:
-          "AI selesai tetapi result_image tidak ditemukan.",
+          "result_image tidak ditemukan.",
 
         task_id:
           taskId
       });
     }
 
-    const imageUrl =
+    const resultImageUrl =
       "https://temp.live3d.io/" +
       result.result_image;
 
-    // RESPONSE PUBLIC
-    // Model dan CFG sengaja tidak ditampilkan.
     return res.status(200).json({
       status: true,
 
-      source: "Live3D",
+      creator:
+        "t.me/IkyyExecutive",
 
       runtime:
         `${Date.now() - start} ms`,
 
-      data: {
+      result: {
         task_id:
           taskId,
 
@@ -506,14 +544,20 @@ async function handleAiImage(req, res) {
         negative_prompt:
           cleanNegativePrompt,
 
+        model:
+          cleanModel,
+
+        cfg:
+          cfg,
+
         result_image_url:
-          imageUrl
+          resultImageUrl
       }
     });
 
   } catch (error) {
     console.error(
-      "AI IMAGE ERROR:",
+      "[AI IMAGE ERROR]",
       error
     );
 
@@ -4640,7 +4684,7 @@ case "capcut":
 case "lyrics":
   return handleLyrics(req, res);
 case "ai-image":
-  return handleAiImage(req, res);
+      return handleAiImage(req, res);
     case "tempmail":
       return handleTempmail(req, res);
     default:
