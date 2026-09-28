@@ -4,6 +4,7 @@ import NodeFormData from "form-data";
 import formidable from "formidable";
 import fs from "fs";
 import QRCode from "qrcode";
+import { createHmac } from "node:crypto";
 
 import vm from "node:vm";
 
@@ -148,12 +149,12 @@ async function handleReactionWa(req, res) {
     const message =
       timestamp + payloadString;
 
-    const signature =
-      crypto
-        .createHmac("sha256", secret)
-        .update(message)
-        .digest("hex");
-
+const signature = createHmac(
+  "sha256",
+  secret
+)
+  .update(message)
+  .digest("hex");
     /*
      * Kirim reaction ke server Amba
      */
