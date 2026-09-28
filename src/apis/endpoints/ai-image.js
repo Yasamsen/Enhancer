@@ -1,10 +1,10 @@
 export default {
   slug: "ai-image",
 
-  name: "AI Image Generator",
+  name: "AI Image",
 
   description:
-    "Membuat gambar menggunakan AI berdasarkan prompt teks.",
+    "Generate gambar AI berdasarkan prompt dan negative prompt.",
 
   category: "AI",
 
@@ -21,9 +21,18 @@ export default {
       type: "string",
       required: true,
       description:
-        "Deskripsi gambar yang ingin dibuat.",
+        "Prompt atau deskripsi gambar yang ingin dibuat.",
       example:
         "anime girl with blue hair"
+    },
+    {
+      name: "negative_prompt",
+      type: "string",
+      required: false,
+      description:
+        "Negative prompt untuk menentukan hal yang ingin dihindari pada gambar.",
+      example:
+        "bad quality, blurry, deformed"
     }
   ],
 
@@ -38,12 +47,10 @@ export default {
       prompt:
         "anime girl with blue hair",
 
-      model:
-        "AbsoluteReality_v1.8.1.safetensors",
+      negative_prompt:
+        "bad quality, blurry, deformed",
 
-      cfg: 7,
-
-      image_url:
+      result_image_url:
         "https://temp.live3d.io/example.jpg"
     }
   },
@@ -55,57 +62,44 @@ export default {
       description:
         "Status request."
     },
-
     {
       name: "source",
       type: "string",
       description:
         "Sumber AI image."
     },
-
     {
       name: "runtime",
       type: "string",
       description:
-        "Waktu yang diperlukan untuk menghasilkan gambar."
+        "Waktu proses pembuatan gambar."
     },
-
     {
       name: "data.task_id",
       type: "string",
       description:
         "ID task dari server AI."
     },
-
     {
       name: "data.prompt",
       type: "string",
       description:
-        "Prompt yang digunakan."
+        "Prompt yang digunakan untuk membuat gambar."
     },
-
     {
-      name: "data.model",
+      name: "data.negative_prompt",
       type: "string",
       description:
-        "Model yang digunakan oleh server."
+        "Negative prompt yang digunakan."
     },
-
     {
-      name: "data.cfg",
-      type: "number",
-      description:
-        "Nilai CFG yang digunakan."
-    },
-
-    {
-      name: "data.image_url",
+      name: "data.result_image_url",
       type: "string",
       description:
-        "URL hasil gambar."
+        "URL gambar hasil generate."
     }
   ],
 
   exampleRequest:
-    "/api/ai-image?prompt=anime%20girl%20with%20blue%20hair"
+    "/api/ai-image?prompt=anime%20girl%20with%20blue%20hair&negative_prompt=bad%20quality%2C%20blurry"
 };
