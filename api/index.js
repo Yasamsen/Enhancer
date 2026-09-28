@@ -263,14 +263,16 @@ async function aiImageCreateJob(
     );
   }
 
-  if (
-    response.data?.code !== 200
-  ) {
-    throw new Error(
-      response.data?.message ||
-      `Gagal membuat task. Code: ${response.data?.code}`
-    );
-  }
+  if (response.data?.code !== 200) {
+  throw new Error(
+    JSON.stringify({
+      upstream_code: response.data?.code,
+      upstream_message: response.data?.message,
+      upstream_data: response.data?.data ?? {},
+      upstream_response: response.data
+    })
+  );
+}
 
   const taskId =
     response.data?.data?.task_id;
