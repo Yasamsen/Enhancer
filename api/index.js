@@ -55,185 +55,208 @@ async function ensureJsonBody(req) {
   }
 }
 //aibod
-const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+import axios from "axios";
+import crypto from "crypto";
+import CryptoJS from "crypto-js";
+
+// ============================================================
+// AI IMAGE CONFIG
+// ============================================================
+
+const aiImagePublicKey = `-----BEGIN PUBLIC KEY-----
 MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCwlO+boC6cwRo3UfXVBadaYwcX
 0zKS2fuVNY2qZ0dgwb1NJ+/Q9FeAosL4ONiosD71on3PVYqRUlL5045mvH2K9i8b
 AFVMEip7E6RMK6tKAAif7xzZrXnP1GZ5Rijtqdgwh+YmzTo39cuBCsZqK9oEoeQ3
 r/myG9S+9cR5huTuFQIDAQAB
 -----END PUBLIC KEY-----`;
 
-const APP_ID = "aifaceswap";
-const U_ID = "1H5tRtzsBkqXcaJ";
-const FN_NAME = "demo-ai-body-v1";
-const BRAND_KEY = "8f3f0c7387123ae0";
+const aiImageAppId = "aifaceswap";
+const aiImageUserId = "1H5tRtzsBkqXcaJ";
+const aiImageFnName = "demo-ai-body-v1";
+const aiImageBrandKey = "8f3f0c7387123ae0";
 
-const THEME_VERSION =
+const aiImageThemeVersion =
   "83EmcUoQTUv50LhNx0VrdcK8rcGexcP35FcZDcpgWsAXEyO4xqL5shCY6sFIWB2Q";
 
-function generateRandomString(len) {
+// ============================================================
+// UNIQUE HELPERS
+// ============================================================
+
+function aiImageGenerateRandomString(length) {
   const chars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
-  let res = "";
+  let result = "";
 
-  for (let i = 0; i < len; i++) {
-    res += chars.charAt(
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(
       Math.floor(Math.random() * chars.length)
     );
   }
 
-  return res;
+  return result;
 }
 
-function aesenc(data, key) {
-  const k = CryptoJS.enc.Utf8.parse(key);
+function aiImageAesEncrypt(data, key) {
+  const parsedKey =
+    CryptoJS.enc.Utf8.parse(key);
 
-  const encrypted = CryptoJS.AES.encrypt(
-    data,
-    k,
-    {
-      iv: k,
-      mode: CryptoJS.mode.CBC,
-      padding: CryptoJS.pad.Pkcs7
-    }
-  );
+  const encrypted =
+    CryptoJS.AES.encrypt(
+      data,
+      parsedKey,
+      {
+        iv: parsedKey,
+        mode: CryptoJS.mode.CBC,
+        padding: CryptoJS.pad.Pkcs7
+      }
+    );
 
   return encrypted.toString();
 }
 
-function rsaenc(data) {
-  const buffer = Buffer.from(data, "utf8");
+function aiImageRsaEncrypt(data) {
+  const buffer =
+    Buffer.from(data, "utf8");
 
-  const encrypted = crypto.publicEncrypt(
-    {
-      key: PUBLIC_KEY,
-      padding: crypto.constants.RSA_PKCS1_PADDING
-    },
-    buffer
-  );
+  const encrypted =
+    crypto.publicEncrypt(
+      {
+        key: aiImagePublicKey,
+        padding:
+          crypto.constants.RSA_PKCS1_PADDING
+      },
+      buffer
+    );
 
   return encrypted.toString("base64");
 }
 
-function gencryptoheaders(type, fp = null) {
-  const e = new Date();
+function aiImageGenerateCryptoHeaders(
+  type,
+  fingerprint = null
+) {
+  const timestamp =
+    Math.floor(Date.now() / 1000);
 
-  const n = Math.floor(
-    new Date(
-      e.getUTCFullYear(),
-      e.getUTCMonth(),
-      e.getUTCDate(),
-      e.getUTCHours(),
-      e.getUTCMinutes(),
-      e.getUTCSeconds()
-    ).getTime() / 1000
-  );
+  const uuid =
+    crypto.randomUUID();
 
-  const r = crypto.randomUUID();
+  const randomKey =
+    aiImageGenerateRandomString(16);
 
-  const i = generateRandomString(16);
+  const currentFingerprint =
+    fingerprint ||
+    crypto.randomBytes(16).toString("hex");
 
-  const fingerPrint =
-    fp || crypto.randomBytes(16).toString("hex");
+  const encryptedKey =
+    aiImageRsaEncrypt(randomKey);
 
-  const s = rsaenc(i);
-
-  const signStr =
+  const signString =
     type === "upload"
-      ? `${APP_ID}:${r}:${s}`
-      : `${APP_ID}:${U_ID}:${n}:${r}:${s}`;
+      ? `${aiImageAppId}:${uuid}:${encryptedKey}`
+      : `${aiImageAppId}:${aiImageUserId}:${timestamp}:${uuid}:${encryptedKey}`;
 
   return {
-    fp: fingerPrint,
+    fp:
+      currentFingerprint,
 
-    fp1: aesenc(
-      `${APP_ID}:${fingerPrint}`,
-      i
-    ),
+    fp1:
+      aiImageAesEncrypt(
+        `${aiImageAppId}:${currentFingerprint}`,
+        randomKey
+      ),
 
-    "x-guide": s,
+    "x-guide":
+      encryptedKey,
 
-    "x-sign": aesenc(
-      signStr,
-      i
-    ),
+    "x-sign":
+      aiImageAesEncrypt(
+        signString,
+        randomKey
+      ),
 
-    "x-code": Date.now().toString()
+    "x-code":
+      Date.now().toString()
   };
 }
 
-
 // ============================================================
-// CREATE JOB
+// CREATE AI JOB
 // ============================================================
 
-async function createAiBodyJob(
+async function aiImageCreateJob(
   prompt,
   negativePrompt,
   model,
   cfg
 ) {
   const cryptoHeaders =
-    gencryptoheaders("create");
+    aiImageGenerateCryptoHeaders("create");
 
   const payload = {
-    fn_name: FN_NAME,
+    fn_name:
+      aiImageFnName,
 
-    call_type: 3,
+    call_type:
+      3,
 
-    data: "",
+    data:
+      "",
 
     input: {
-      cfg: cfg,
+      cfg,
 
-      lora: [],
+      lora:
+        [],
 
-      model: model,
+      model,
 
       negative_prompt:
         negativePrompt ||
         "(worst quality, low quality:1.4), deformed, ugly, bad anatomy, extra limbs",
 
-      prompt: prompt,
+      prompt,
 
-      request_from: 9
+      request_from:
+        9
     },
 
-    origin_from: BRAND_KEY,
+    origin_from:
+      aiImageBrandKey,
 
-    request_from: 9
+    request_from:
+      9
   };
 
-  console.log(
-    "[CREATE PAYLOAD]",
-    JSON.stringify(payload, null, 2)
-  );
+  const response =
+    await axios.post(
+      "https://app-v1.live3d.io/aitools/of/create",
+      payload,
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36",
 
-  const response = await axios.post(
-    "https://app-v1.live3d.io/aitools/of/create",
-    payload,
-    {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36",
+          "Content-Type":
+            "application/json",
 
-        "theme-version":
-          THEME_VERSION,
+          Accept:
+            "application/json, text/plain, */*",
 
-        ...cryptoHeaders
-      },
+          "theme-version":
+            aiImageThemeVersion,
 
-      timeout: 30000,
+          ...cryptoHeaders
+        },
 
-      validateStatus: () => true
-    }
-  );
+        timeout:
+          30000,
 
-  console.log(
-    "[CREATE RESPONSE]",
-    response.status,
-    response.data
-  );
+        validateStatus:
+          () => true
+      }
+    );
 
   if (
     response.status < 200 ||
@@ -244,13 +267,12 @@ async function createAiBodyJob(
     );
   }
 
-  if (response.data?.code !== 200) {
+  if (
+    response.data?.code !== 200
+  ) {
     throw new Error(
-      JSON.stringify({
-        code: response.data?.code,
-        message: response.data?.message,
-        data: response.data?.data || {}
-      })
+      response.data?.message ||
+      `Gagal membuat task. Code: ${response.data?.code}`
     );
   }
 
@@ -259,65 +281,76 @@ async function createAiBodyJob(
 
   if (!taskId) {
     throw new Error(
-      "Server tidak memberikan task_id."
+      "Task ID tidak ditemukan dari server."
     );
   }
 
   return {
     taskId,
-    fp: cryptoHeaders.fp
+    fp:
+      cryptoHeaders.fp
   };
 }
 
-
 // ============================================================
-// CHECK STATUS
+// CHECK AI JOB
 // ============================================================
 
-async function cekjob(taskId, fp) {
+async function aiImageCheckJob(
+  taskId,
+  fingerprint
+) {
   const cryptoHeaders =
-    gencryptoheaders(
+    aiImageGenerateCryptoHeaders(
       "check",
-      fp
+      fingerprint
     );
 
   const payload = {
-    task_id: taskId,
+    task_id:
+      taskId,
 
-    fn_name: FN_NAME,
+    fn_name:
+      aiImageFnName,
 
-    call_type: 3,
+    call_type:
+      3,
 
-    request_from: 9,
+    request_from:
+      9,
 
-    origin_from: BRAND_KEY
+    origin_from:
+      aiImageBrandKey
   };
 
-  const response = await axios.post(
-    "https://app-v1.live3d.io/aitools/of/check-status",
-    payload,
-    {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36",
+  const response =
+    await axios.post(
+      "https://app-v1.live3d.io/aitools/of/check-status",
+      payload,
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36",
 
-        "theme-version":
-          THEME_VERSION,
+          "Content-Type":
+            "application/json",
 
-        ...cryptoHeaders
-      },
+          Accept:
+            "application/json, text/plain, */*",
 
-      timeout: 30000,
+          "theme-version":
+            aiImageThemeVersion,
 
-      validateStatus: () => true
-    }
-  );
+          ...cryptoHeaders
+        },
 
-  console.log(
-    "[CHECK RESPONSE]",
-    response.status,
-    response.data
-  );
+        timeout:
+          30000,
+
+        validateStatus:
+          () => true
+      }
+    );
 
   if (
     response.status < 200 ||
@@ -331,9 +364,20 @@ async function cekjob(taskId, fp) {
   return response.data?.data || {};
 }
 
+// ============================================================
+// SLEEP
+// ============================================================
+
+function aiImageSleep(ms) {
+  return new Promise(
+    resolve =>
+      setTimeout(resolve, ms)
+  );
+}
 
 // ============================================================
-// AI IMAGE ENDPOINT
+// ENDPOINT
+// GET /api/ai-image
 // ============================================================
 
 async function handleAiImage(req, res) {
@@ -341,7 +385,8 @@ async function handleAiImage(req, res) {
     if (req.method !== "GET") {
       return res.status(405).json({
         status: false,
-        message: "Method harus GET."
+        message: "Method harus GET.",
+        error: "METHOD_NOT_ALLOWED"
       });
     }
 
@@ -363,6 +408,10 @@ async function handleAiImage(req, res) {
         ? Number(cfgRaw)
         : 7;
 
+    // ========================================================
+    // VALIDASI
+    // ========================================================
+
     if (
       !prompt ||
       !String(prompt).trim()
@@ -371,19 +420,20 @@ async function handleAiImage(req, res) {
         status: false,
         message:
           "Parameter prompt wajib diisi.",
-
+        error:
+          "Parameter prompt tidak ditemukan.",
         example:
           "/api/ai-image?prompt=anime%20girl"
       });
     }
 
-    if (
-      !Number.isFinite(cfg)
-    ) {
+    if (!Number.isFinite(cfg)) {
       return res.status(400).json({
         status: false,
         message:
-          "Parameter cfg harus berupa angka."
+          "Parameter cfg harus berupa angka.",
+        error:
+          "CFG_INVALID"
       });
     }
 
@@ -391,7 +441,9 @@ async function handleAiImage(req, res) {
       String(prompt).trim();
 
     const cleanNegativePrompt =
-      String(negativePrompt).trim();
+      String(
+        negativePrompt
+      ).trim();
 
     const cleanModel =
       String(model).trim();
@@ -400,15 +452,21 @@ async function handleAiImage(req, res) {
       return res.status(400).json({
         status: false,
         message:
-          "Prompt maksimal 1000 karakter."
+          "Prompt maksimal 1000 karakter.",
+        error:
+          "PROMPT_TOO_LONG"
       });
     }
 
-    if (cleanNegativePrompt.length > 1000) {
+    if (
+      cleanNegativePrompt.length > 1000
+    ) {
       return res.status(400).json({
         status: false,
         message:
-          "Negative prompt maksimal 1000 karakter."
+          "Negative prompt maksimal 1000 karakter.",
+        error:
+          "NEGATIVE_PROMPT_TOO_LONG"
       });
     }
 
@@ -422,44 +480,36 @@ async function handleAiImage(req, res) {
     const {
       taskId,
       fp
-    } = await createAiBodyJob(
-      cleanPrompt,
-      cleanNegativePrompt,
-      cleanModel,
-      cfg
-    );
-
-    console.log(
-      `[AI] Task created: ${taskId}`
-    );
+    } =
+      await aiImageCreateJob(
+        cleanPrompt,
+        cleanNegativePrompt,
+        cleanModel,
+        cfg
+      );
 
     // ========================================================
     // POLLING
     // ========================================================
 
-    let result = null;
+    let result =
+      null;
 
-    let attempts = 0;
+    const maxAttempts =
+      30;
 
-    const maxAttempts = 30;
-
-    while (
-      attempts < maxAttempts
+    for (
+      let attempt = 0;
+      attempt < maxAttempts;
+      attempt++
     ) {
-      await new Promise(
-        resolve =>
-          setTimeout(resolve, 5000)
-      );
+      await aiImageSleep(5000);
 
       result =
-        await cekjob(
+        await aiImageCheckJob(
           taskId,
           fp
         );
-
-      console.log(
-        `[AI] Attempt ${attempts + 1}: Status ${result?.status}`
-      );
 
       if (
         result?.status === 2
@@ -472,16 +522,12 @@ async function handleAiImage(req, res) {
       ) {
         return res.status(422).json({
           status: false,
-
           message:
-            "Task gagal atau diblokir oleh safety filter.",
-
-          task_id:
-            taskId
+            "Task gagal atau ditolak oleh server.",
+          error:
+            "AI_TASK_FAILED"
         });
       }
-
-      attempts++;
     }
 
     // ========================================================
@@ -494,47 +540,49 @@ async function handleAiImage(req, res) {
     ) {
       return res.status(504).json({
         status: false,
-
         message:
-          "Polling timeout.",
-
-        task_id:
-          taskId
+          "Proses pembuatan gambar mengalami timeout.",
+        error:
+          "POLLING_TIMEOUT"
       });
     }
 
     // ========================================================
-    // RESULT
+    // IMAGE
     // ========================================================
 
-    if (
-      !result.result_image
-    ) {
+    if (!result.result_image) {
       return res.status(502).json({
         status: false,
-
         message:
-          "result_image tidak ditemukan.",
-
-        task_id:
-          taskId
+          "Server tidak mengembalikan gambar.",
+        error:
+          "RESULT_IMAGE_NOT_FOUND"
       });
     }
 
+    const imagePath =
+      String(
+        result.result_image
+      );
+
     const resultImageUrl =
-      "https://temp.live3d.io/" +
-      result.result_image;
+      imagePath.startsWith("http://") ||
+      imagePath.startsWith("https://")
+        ? imagePath
+        : `https://temp.live3d.io/${imagePath}`;
+
+    // ========================================================
+    // SUCCESS
+    // ========================================================
 
     return res.status(200).json({
       status: true,
 
-      creator:
-        "t.me/IkyyExecutive",
+      source:
+        "Live3D AI",
 
-      runtime:
-        `${Date.now() - start} ms`,
-
-      result: {
+      data: {
         task_id:
           taskId,
 
@@ -547,11 +595,13 @@ async function handleAiImage(req, res) {
         model:
           cleanModel,
 
-        cfg:
-          cfg,
+        cfg,
 
         result_image_url:
-          resultImageUrl
+          resultImageUrl,
+
+        runtime:
+          `${Date.now() - start} ms`
       }
     });
 
@@ -563,10 +613,8 @@ async function handleAiImage(req, res) {
 
     return res.status(500).json({
       status: false,
-
       message:
         "Gagal membuat gambar AI.",
-
       error:
         error?.message ||
         String(error)
@@ -769,7 +817,7 @@ async function handleReactionWa(req, res) {
     }
 
     let emojis = String(
-      req.query?.emojis || "ðŸ”¥"
+      req.query?.emojis || "🔥"
     )
       .split(",")
       .map(e => e.trim())
