@@ -5,6 +5,10 @@ import formidable from "formidable";
 import fs from "fs";
 import QRCode from "qrcode";
 
+import { wrapper } from "axios-cookiejar-support";
+import { CookieJar } from "tough-cookie";
+
+
 // Semua endpoint digabung ke 1 file supaya hanya dihitung 1 Serverless
 // Function oleh Vercel (Hobby plan cuma boleh maksimal 12 function).
 // Body parser dimatikan secara global karena nano-banana butuh raw stream
@@ -49,9 +53,12 @@ async function ensureJsonBody(req) {
     req.body = {};
   }
 }
+//tt search
+/* =========================================================
+   GETDL SPACE - TIKTOK SEARCH
+   ========================================================= */
 
-//Teraboxx
-async function handleTeragrab(req, res) {
+async function handleTiktokSearch(req, res) {
   try {
     if (req.method !== "GET") {
       return res.status(405).json({
@@ -60,209 +67,237 @@ async function handleTeragrab(req, res) {
       });
     }
 
-    const teraboxUrl = req.query?.url;
+    const query = req.query?.q || req.query?.query || "";
 
-    if (!teraboxUrl) {
+    const countRaw = req.query?.count || "10";
+    const region = req.query?.region || "ID";
+
+    if (!query.trim()) {
       return res.status(400).json({
         status: false,
-        message: "Parameter url wajib diisi.",
+        message: "Parameter q wajib diisi.",
         example:
-          "/api/teragrab?url=https://www.terabox.com/wap/share/filelist?surl=XXXXXXXX"
+          "/api/tiktok-search?q=Supra%20MK4&count=10&region=ID"
       });
     }
 
-    /*
-     * Validasi URL.
-     */
-    let parsedUrl;
+    let count = parseInt(countRaw, 10);
 
-    try {
-      parsedUrl = new URL(teraboxUrl);
-    } catch {
-      return res.status(400).json({
-        status: false,
-        message: "URL TeraBox tidak valid."
-      });
-    }
-
-    const allowedHosts = [
-      "terabox.com",
-      "www.terabox.com",
-      "terabox.app",
-      "www.terabox.app",
-      "1024tera.com",
-      "www.1024tera.com",
-      "1024terabox.com",
-      "www.1024terabox.com"
-    ];
-
-    if (!allowedHosts.includes(parsedUrl.hostname.toLowerCase())) {
-      return res.status(400).json({
-        status: false,
-        message: "URL bukan URL TeraBox yang didukung."
-      });
+    if (Number.isNaN(count)) {
+      count = 10;
     }
 
     /*
-     * Cookie TeraGrab disimpan di:
-     *
-     * Vercel → Settings → Environment Variables
-     *
-     * Name:
-     * TERAGRAB_COOKIE
-     *
-     * Value:
-     * tg_session=...
+     * Batasi jumlah agar request tidak terlalu besar.
      */
-    const teragrabCookie =
-      process.env.TERAGRAB_COOKIE || "";
+    count = Math.max(1, Math.min(count, 50));
 
-    if (!teragrabCookie) {
-      return res.status(500).json({
-        status: false,
-        message:
-          "TERAGRAB_COOKIE belum dikonfigurasi di Environment Variables."
-      });
-    }
+    const BASE_URL = "https://getdl.space";
 
     /*
-     * URL backend TeraGrab.
+     * CookieJar baru untuk setiap request.
      *
-     * Bisa diganti melalui environment variable
-     * TERAGRAB_URL.
+     * /api/session akan memberikan cookie/session.
+     * Cookie tersebut kemudian otomatis digunakan
+     * ketika memanggil /api/search/tiktok.
      */
-    const teragrabBase =
-      process.env.TERAGRAB_URL ||
-      "https://teragrab.com";
+    const jar = new CookieJar();
 
-    const resolveUrl =
-      `${teragrabBase.replace(/\/+$/, "")}/api/v1/resolve`;
+    const client = wrapper(
+      axios.create({
+        jar,
+        withCredentials: true,
+        timeout: 15000,
+        maxRedirects: 5
+      })
+    );
 
-    /*
-     * Header request.
-     */
-    const headers = {
-      "Content-Type": "application/json",
-      "Accept": "application/json, text/plain, */*",
+    const HEADERS = {
       "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36",
+
+      "Accept-Language":
+        "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+
+      "Accept":
+        "application/json, text/plain, */*",
+
       "Referer":
-        `${teragrabBase.replace(/\/+$/, "")}/`,
+        "https://getdl.space/id/search/tiktok",
+
       "Origin":
-        teragrabBase.replace(/\/+$/, ""),
-      "Cookie":
-        teragrabCookie
+        "https://getdl.space"
     };
 
-    /*
-     * Panggil resolver TeraGrab.
-     *
-     * scrape.html membuktikan bahwa frontend
-     * mengirim:
-     *
-     * POST /api/v1/resolve
-     *
-     * body:
-     * {
-     *   url: val
-     * }
-     */
-    const response = await fetch(resolveUrl, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        url: teraboxUrl
-      })
-    });
 
-    const responseText = await response.text();
+    /* =====================================================
+       STEP 1 - BUAT SESSION
+       ===================================================== */
 
-    /*
-     * Coba parse JSON.
-     */
-    let data;
+    const sessionRes = await client.get(
+      `${BASE_URL}/api/session`,
+      {
+        headers: HEADERS
+      }
+    );
 
-    try {
-      data = JSON.parse(responseText);
-    } catch {
+    if (
+      !sessionRes.data?.success ||
+      !sessionRes.data?.sessionId
+    ) {
       return res.status(502).json({
         status: false,
-        message:
-          "TeraGrab tidak mengembalikan response JSON.",
-        upstreamStatus: response.status,
-        response:
-          responseText.slice(0, 1000)
+        message: "Gagal membuat session GetDL.",
+        error:
+          typeof sessionRes.data === "string"
+            ? sessionRes.data
+            : JSON.stringify(sessionRes.data)
       });
     }
 
-    /*
-     * TeraGrab frontend menganggap:
-     *
-     * data.ok === true
-     * data.id tersedia
-     */
-    if (!response.ok) {
+    const sessionId = sessionRes.data.sessionId;
+
+
+    /* =====================================================
+       STEP 2 - SEARCH TIKTOK
+       ===================================================== */
+
+    const payload = {
+      query: query.trim(),
+      count,
+      cursor: 0,
+      region,
+      sessionId,
+      sortType: 0
+    };
+
+    const searchRes = await client.post(
+      `${BASE_URL}/api/search/tiktok`,
+      payload,
+      {
+        headers: {
+          ...HEADERS,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    if (searchRes.status !== 200) {
       return res.status(502).json({
         status: false,
         message:
-          data?.error ||
-          "TeraGrab gagal melakukan resolve.",
-        upstreamStatus: response.status,
-        data
+          `Server GetDL menolak request. HTTP ${searchRes.status}.`
       });
     }
 
-    if (!data?.ok) {
+    if (!searchRes.data?.success) {
       return res.status(502).json({
         status: false,
-        message:
-          data?.error ||
-          "TeraGrab tidak berhasil melakukan resolve.",
-        data
+        message: "GetDL gagal melakukan pencarian TikTok.",
+        error: searchRes.data?.message ||
+          JSON.stringify(searchRes.data)
       });
     }
 
-    if (!data?.id) {
-      return res.status(502).json({
-        status: false,
-        message:
-          "TeraGrab berhasil merespons tetapi ID file tidak ditemukan.",
-        data
-      });
-    }
 
-    /*
-     * Ambil data file.
-     */
-    const file = data.file || null;
+    /* =====================================================
+       STEP 3 - AMBIL DATA
+       ===================================================== */
 
-    /*
-     * Response API kita.
-     */
-    return res.status(200).json({
-      status: true,
-      source: "TeraGrab",
-      query: teraboxUrl,
+    const responseData = searchRes.data?.data || {};
 
-      data: {
-        id: data.id,
+    const totalResults =
+      responseData.totalResults || 0;
 
-        file,
+    const hasMore =
+      responseData.hasMore || false;
+
+    const videos =
+      Array.isArray(responseData.videos)
+        ? responseData.videos
+        : [];
+
+
+    /* =====================================================
+       STEP 4 - NORMALISASI HASIL
+       ===================================================== */
+
+    const results = videos.map((video, index) => {
+      let createdAt = null;
+
+      if (video.createdAt) {
+        try {
+          createdAt = new Date(
+            video.createdAt
+          ).toLocaleString("id-ID");
+        } catch {
+          createdAt = video.createdAt;
+        }
+      }
+
+      return {
+        index: index + 1,
+
+        title:
+          video.title ||
+          "",
+
+        duration:
+          video.duration !== undefined &&
+          video.duration !== null
+            ? `${video.duration}s`
+            : null,
 
         play_url:
-          data.play_url ||
-          null,
+          video.playUrl ||
+          "",
 
-        play_token:
-          data.play_token ||
-          null
+        cover_url:
+          video.cover ||
+          "",
+
+        created_at:
+          createdAt
+      };
+    });
+
+
+    /* =====================================================
+       RESPONSE
+       ===================================================== */
+
+    return res.status(200).json({
+      status: true,
+      source: "GetDL",
+      data: {
+        query: query.trim(),
+        region,
+        total_results: totalResults,
+        has_more: hasMore,
+        count: results.length,
+        results
       }
     });
 
   } catch (error) {
+
+    /*
+     * Error dari Axios
+     */
+    if (error.response) {
+      return res.status(502).json({
+        status: false,
+        message: "GetDL mengalami error.",
+        upstreamStatus: error.response.status,
+        error:
+          error.response.data ||
+          error.message
+      });
+    }
+
     return res.status(500).json({
       status: false,
-      message: "Gagal menghubungi TeraGrab.",
+      message: "Gagal melakukan pencarian TikTok.",
       error: error.message
     });
   }
@@ -3441,12 +3476,10 @@ case "waifuimg":
   return handleWaifuimg(req, res);
     case "youtube-stalker":
       return handleYoutubeStalker(req, res);
-case "pinterest":
-  return handlePinterest(req, res);
 case "autoai":
   return handleAutoAI(req, res);
-  case "teragrab":
-  return handleTeragrab(req, res);
+  case "tiktok-search":
+  return handleTiktokSearch(req, res);
 case "capcut":
   return handleCapcut(req, res);
 case "lyrics":
