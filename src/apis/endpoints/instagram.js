@@ -1,76 +1,58 @@
 export default {
-  "slug": "instagram",
-  "name": "Instagram Downloader",
-  "description": "Download photos, videos, reels, and stories from Instagram links with high quality output.",
-  "category": "Downloader",
-  "method": "GET",
-  "endpoint": "/api/instagram",
-  "icon": "Instagram",
-  "parameters": [
+  slug: "instagram",
+  name: "Instagram Downloader",
+  description:
+    "Download foto, video, Reels, dan carousel Instagram menggunakan InstaLoadr.",
+  category: "Downloader",
+  method: "GET",
+  endpoint: "/api/instagram",
+  icon: "Instagram",
+
+  parameters: [
     {
-      "name": "url",
-      "type": "string",
-      "required": true,
-      "description": "The Instagram post, reel, or story URL to download from.",
-      "example": "https://www.instagram.com/reel/XXXXXXX/"
+      name: "url",
+      type: "string",
+      required: true,
+      description:
+        "URL postingan, Reel, video, atau konten Instagram yang bersifat publik.",
+      example:
+        "https://www.instagram.com/reel/Dc9ikbnT_z-/"
     }
   ],
-  "responseExample": {
-    "success": true,
-    "data": {
-      "platform": "instagram",
-      "type": "reel",
-      "media": [
+
+  responseExample: {
+    status: true,
+    source: "InstaLoadr",
+    data: {
+      success: true,
+      data: [
         {
-          "url": "https://cdn.instagram.com/media.mp4",
-          "thumbnail": "https://cdn.instagram.com/thumb.jpg",
-          "type": "video",
-          "quality": "HD"
+          type: "video",
+          url: "https://example.com/video.mp4",
+          thumbnail: "https://example.com/thumbnail.jpg"
         }
-      ],
-      "author": {
-        "username": "@username",
-        "name": "User Name"
-      },
-      "caption": "Sample caption text"
+      ]
     }
   },
-  "responseFields": [
+
+  responseFields: [
     {
-      "name": "success",
-      "type": "boolean",
-      "description": "Whether the request succeeded."
+      name: "status",
+      type: "boolean",
+      description: "Status request API."
     },
     {
-      "name": "data.platform",
-      "type": "string",
-      "description": "Source platform name."
+      name: "source",
+      type: "string",
+      description: "Sumber downloader yang digunakan."
     },
     {
-      "name": "data.type",
-      "type": "string",
-      "description": "Type of media (post, reel, story)."
-    },
-    {
-      "name": "data.media",
-      "type": "array",
-      "description": "Array of downloadable media objects."
-    },
-    {
-      "name": "data.media[].url",
-      "type": "string",
-      "description": "Direct download URL."
-    },
-    {
-      "name": "data.media[].thumbnail",
-      "type": "string",
-      "description": "Thumbnail image URL."
-    },
-    {
-      "name": "data.author",
-      "type": "object",
-      "description": "Author profile information."
+      name: "data",
+      type: "object",
+      description: "Response asli dari InstaLoadr."
     }
   ],
-  "exampleRequest": "https://samapi.example.com/api/instagram?url=https://www.instagram.com/reel/XXXXXXX/"
+
+  exampleRequest:
+    "https://DOMAIN-KAMU/api/instagram?url=https://www.instagram.com/reel/Dc9ikbnT_z-/"
 };
