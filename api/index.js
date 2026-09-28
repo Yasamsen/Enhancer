@@ -6,6 +6,7 @@ import fs from "fs";
 import QRCode from "qrcode";
 import { createHmac } from "node:crypto";
 
+import qs from "qs";
 import FormData from "form-data";
 import crypto from "node:crypto";
 import CryptoJS from "crypto-js";
@@ -53,6 +54,334 @@ async function ensureJsonBody(req) {
     req.body = Object.fromEntries(new URLSearchParams(raw));
   } else {
     req.body = {};
+  }
+}
+// ============================================================
+// FACEBOOK DOWNLOADER
+// ============================================================
+
+async function fbDownloaderFetchFgetLinks(fbUrl) {
+  try {
+    const payload = qs.stringify({
+      id: fbUrl,
+      locale: "id"
+    });
+
+    const headers = {
+      "User-Agent":
+        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36",
+      "Content-Type":
+        "application/x-www-form-urlencoded",
+      "Hx-Current-Url": "https://fget.io/id",
+      "Hx-Request": "true",
+      "Hx-Target": "target",
+      "Hx-Trigger": "form",
+      Origin: "https://fget.io",
+      Referer: "https://fget.io/id"
+    };
+
+    const { data: html } = await axios.post(
+      "https://fget.io/process",
+      payload,
+      {
+        headers,
+        timeout: 30000
+      }
+    );
+
+    const $ = cheerio.load(html);
+
+    const thumbnail =
+      $(".result-thumbnail img").attr("src") ||
+      null;
+
+    const downloads = [];
+
+    $(".space-y-2 .flex").each((_, el) => {
+      const quality =
+        $(el)
+          .find(".text-sm")
+          .text()
+          .trim();
+
+      const type =
+        $(el)
+          .find(".text-xs")
+          .text()
+          .replace(/[()]/g, "")
+          .trim();
+
+      const url =
+        $(el).find("a").attr("href");
+
+      if (quality && url) {
+        downloads.push({
+          quality,
+          type,
+          url
+        });
+      }
+    });
+
+    return {
+      thumbnail,
+      downloads
+    };
+  } catch {
+    return {
+      thumbnail: null,
+      downloads: []
+    };
+  }
+}
+
+
+// ============================================================
+// FACEBOOK METADATA
+// ============================================================
+
+async function fbDownloaderFetchWayInMeta(
+  fbUrl
+) {
+  try {
+    const headers = {
+      "User-Agent":
+        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36",
+      "Content-Type": "application/json",
+      Origin: "https://wayin.ai",
+      Referer: "https://wayin.ai/",
+      "X-Platform": "web"
+    };
+
+    const parseRes = await axios.post(
+      `https://wayinvideo-api.wayin.ai/api/parse_url?url=${encodeURIComponent(fbUrl)}`,
+      {},
+      {
+        headers,
+        timeout: 30000
+      }
+    );
+
+    const cleanVideoUrl =
+      parseRes.data?.data || fbUrl;
+
+    const metaRes = await axios.post(
+      "https://wayinvideo-api.wayin.ai/api/p/v2/get_video_meta",
+      {
+        video_url: cleanVideoUrl
+      },
+      {
+        headers,
+        timeout: 30000
+      }
+    );
+
+    const meta =
+      metaRes.data?.data || {};
+
+    return {
+      title: meta.title || null,
+      author: meta.author || null,
+      abstract: meta.abstract || null,
+
+      duration: meta.duration
+        ? `${Math.floor(
+            meta.duration / 1000
+          )}s`
+        : null,
+
+      view_count:
+        meta.view_count || 0,
+
+      comment_count:
+        meta.comment_count || 0,
+
+      like_count:
+        meta.like_count || 0,
+
+      published_at:
+        meta.published_at
+          ? new Date(
+              meta.published_at * 1000
+            ).toISOString()
+          : null,
+
+      resolution:
+        meta.res || null
+    };
+  } catch {
+    return null;
+  }
+}
+
+
+// ============================================================
+// FACEBOOK DOWNLOADER CORE
+// ============================================================
+
+async function fbDownloaderProcess(
+  fbUrl
+) {
+  const [
+    fgetData,
+    metaData
+  ] = await Promise.all([
+    fbDownloaderFetchFgetLinks(
+      fbUrl
+    ),
+    fbDownloaderFetchWayInMeta(
+      fbUrl
+    )
+  ]);
+
+  if (
+    !fgetData.downloads.length
+  ) {
+    throw new Error(
+      "Gagal mengambil media download."
+    );
+  }
+
+  return {
+    status: true,
+    creator: "IkyyEzz",
+
+    metadata:
+      metaData || {
+        title:
+          "No Metadata Available"
+      },
+
+    downloads: {
+      thumbnail:
+        fgetData.thumbnail,
+
+      links:
+        fgetData.downloads
+    }
+  };
+}
+
+
+// ============================================================
+// HANDLER
+// /api/facebook
+// ============================================================
+
+async function handleFacebook(req, res) {
+
+  // ----------------------------------------------------------
+  // METHOD
+  // ----------------------------------------------------------
+
+  if (req.method !== "GET") {
+    return res.status(405).json({
+      status: false,
+      message:
+        "Method tidak diizinkan. Gunakan GET.",
+      error:
+        "Method Not Allowed"
+    });
+  }
+
+
+  // ----------------------------------------------------------
+  // PARAMETER
+  // ----------------------------------------------------------
+
+  const fbUrl =
+    req.query?.url ||
+    req.query?.link ||
+    req.query?.video;
+
+
+  // ----------------------------------------------------------
+  // VALIDATION
+  // ----------------------------------------------------------
+
+  if (!fbUrl) {
+    return res.status(400).json({
+      status: false,
+      message:
+        "Parameter URL Facebook wajib diisi.",
+      error:
+        'example: "/api/facebook?url=https://www.facebook.com/share/r/1Be7n8L1MV/"'
+    });
+  }
+
+
+  // ----------------------------------------------------------
+  // VALIDATE FACEBOOK URL
+  // ----------------------------------------------------------
+
+  try {
+    const parsedUrl =
+      new URL(fbUrl);
+
+    const hostname =
+      parsedUrl.hostname
+        .toLowerCase()
+        .replace(/^www\./, "");
+
+    const validFacebook =
+      hostname === "facebook.com" ||
+      hostname.endsWith(".facebook.com");
+
+    if (!validFacebook) {
+      return res.status(400).json({
+        status: false,
+        message:
+          "URL yang diberikan bukan URL Facebook yang valid.",
+        error:
+          "Gunakan URL dari facebook.com"
+      });
+    }
+  } catch {
+    return res.status(400).json({
+      status: false,
+      message:
+        "Format URL tidak valid.",
+      error:
+        "Masukkan URL Facebook yang valid."
+    });
+  }
+
+
+  // ----------------------------------------------------------
+  // PROCESS
+  // ----------------------------------------------------------
+
+  try {
+    const result =
+      await fbDownloaderProcess(
+        fbUrl
+      );
+
+    return res.status(200).json({
+      status: true,
+      source: "Facebook Downloader",
+      data: {
+        creator: result.creator,
+        metadata: result.metadata,
+        downloads:
+          result.downloads
+      }
+    });
+
+  } catch (error) {
+
+    console.error(
+      "[facebook]",
+      error
+    );
+
+    return res.status(500).json({
+      status: false,
+      message:
+        "Gagal mengambil media Facebook.",
+      error:
+        error.message
+    });
   }
 }
 // ============================================================
@@ -5302,6 +5631,8 @@ case "capcut":
   return handleReactionWa(req, res);
   case "editimg":
   return handleEditimg(req, res);
+  case "facebook":
+  return handleFacebook(req, res);
 case "lyrics":
   return handleLyrics(req, res);
 case "ai-image":
