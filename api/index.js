@@ -246,15 +246,21 @@ async function createAiBodyJob(
   }
 
   if (response.data?.code !== 200) {
-    throw new Error(
-      JSON.stringify({
-        code: response.data?.code,
-        message: response.data?.message,
-        data: response.data?.data
-      })
-    );
-  }
+  console.error("========== LIVE3D DEBUG ==========");
+  console.error("HTTP STATUS:", response.status);
+  console.error("RESPONSE:", JSON.stringify(response.data, null, 2));
+  console.error("HEADERS:", JSON.stringify(response.headers, null, 2));
+  console.error("==================================");
 
+  throw new Error(
+    JSON.stringify({
+      upstream_http: response.status,
+      upstream_code: response.data?.code,
+      upstream_message: response.data?.message,
+      upstream_data: response.data?.data || null
+    })
+  );
+}
   const taskId =
     response.data?.data?.task_id;
 
