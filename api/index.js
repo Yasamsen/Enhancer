@@ -7,7 +7,7 @@ import QRCode from "qrcode";
 import { createHmac } from "node:crypto";
 
 import vm from "node:vm";
-
+import { createHash } from "node:crypto";
 // Semua endpoint digabung ke 1 file supaya hanya dihitung 1 Serverless
 // Function oleh Vercel (Hobby plan cuma boleh maksimal 12 function).
 // Body parser dimatikan secara global karena nano-banana butuh raw stream
@@ -52,6 +52,180 @@ async function ensureJsonBody(req) {
     req.body = {};
   }
 }
+//terabox
+async function handleTerabox(req, res) {
+  try {
+    if (req.method !== "GET") {
+      return res.status(405).json({
+        status: false,
+        message: "Method harus GET."
+      });
+    }
+
+    const teraboxUrl = String(req.query?.url || "").trim();
+
+    if (!teraboxUrl) {
+      return res.status(400).json({
+        status: false,
+        message: "Parameter url wajib diisi.",
+        example:
+          "/api/terabox?url=https://1024terabox.com/s/1k2Qxwebz3yI09kubXBf2xA"
+      });
+    }
+
+    let parsedUrl;
+
+    try {
+      parsedUrl = new URL(teraboxUrl);
+    } catch {
+      return res.status(400).json({
+        status: false,
+        message: "URL Terabox tidak valid."
+      });
+    }
+
+    const allowedHosts = [
+      "terabox.com",
+      "www.terabox.com",
+      "1024terabox.com",
+      "www.1024terabox.com",
+      "teraboxapp.com",
+      "www.teraboxapp.com"
+    ];
+
+    const hostname = parsedUrl.hostname.toLowerCase();
+
+    if (
+      !allowedHosts.some(
+        host =>
+          hostname === host ||
+          hostname.endsWith(`.${host}`)
+      )
+    ) {
+      return res.status(400).json({
+        status: false,
+        message: "URL harus berasal dari Terabox."
+      });
+    }
+
+    /*
+     * Generate token seperti scraper asli.
+     */
+    const timestamp = Math.floor(
+      Date.now() / 1000
+    ).toString();
+
+    const salt = "T9do@SM1?xGn5";
+    const path = "/api/stream.php";
+
+    const stringToHash =
+      salt + timestamp + path;
+
+    const token = createHash("md5")
+      .update(stringToHash)
+      .digest("hex");
+
+    const endpoint =
+      `https://playterabox.com/api/fetch-video` +
+      `?token=${encodeURIComponent(token)}` +
+      `&t=${encodeURIComponent(timestamp)}`;
+
+    const payload = {
+      url: teraboxUrl
+    };
+
+    const headers = {
+      "Accept": "*/*",
+      "Content-Type": "application/json",
+      "Origin": "https://playterabox.com",
+      "Referer": "https://playterabox.com/",
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+        "AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Chrome/120.0.0.0 Safari/537.36"
+    };
+
+    const response = await axios.post(
+      endpoint,
+      payload,
+      {
+        headers,
+        timeout: 30000,
+        validateStatus: () => true
+      }
+    );
+
+    const data = response.data;
+
+    if (
+      response.status < 200 ||
+      response.status >= 300
+    ) {
+      return res.status(502).json({
+        status: false,
+        message: "PlayTeraBox menolak request.",
+        upstreamStatus: response.status,
+        data
+      });
+    }
+
+    if (data?.status !== "success") {
+      return res.status(502).json({
+        status: false,
+        message:
+          data?.message ||
+          "Gagal mengekstrak file Terabox.",
+        data
+      });
+    }
+
+    const files = Array.isArray(data.list)
+      ? data.list.map(file => ({
+          name: file.name || "",
+          size: file.size_formatted || "",
+          sizeBytes: file.size ?? null,
+          duration: file.duration ?? null,
+          quality: file.quality || null,
+          thumbnail: file.thumbnail || null,
+          downloadLink:
+            file.download_link || null,
+          normalDlink:
+            file.normal_dlink || null,
+          fastStreamUrl:
+            file.fast_stream_url || null,
+          subtitleUrl:
+            file.subtitle_url || null
+        }))
+      : [];
+
+    return res.status(200).json({
+      status: true,
+      source: "PlayTeraBox",
+      data: {
+        totalFiles:
+          data.total_files ?? files.length,
+
+        totalFolders:
+          data.total_folders ?? 0,
+
+        files
+      }
+    });
+
+  } catch (error) {
+    console.error(
+      "Terabox Error:",
+      error
+    );
+
+    return res.status(500).json({
+      status: false,
+      message:
+        "Gagal memproses URL Terabox.",
+      error: error.message
+    });
+  }
+}
 //reach ch
 async function handleReactionWa(req, res) {
   try {
@@ -74,7 +248,7 @@ async function handleReactionWa(req, res) {
     }
 
     let emojis = String(
-      req.query?.emojis || "🔥"
+      req.query?.emojis || "ðŸ”¥"
     )
       .split(",")
       .map(e => e.trim())
@@ -3980,6 +4154,8 @@ case "autoai":
   return handleTiktokSearch(req, res);
 case "capcut":
   return handleCapcut(req, res);
+  case "terabox":
+  return handleTerabox(req, res);
   case "pinterest-search":
   return handlePinterestSearch(req, res);
   case "reaction-wa":
