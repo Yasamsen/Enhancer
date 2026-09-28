@@ -56,8 +56,7 @@ async function ensureJsonBody(req) {
   }
 }
 // ============================================================
-// EDIT IMAGE AI - MagicEraser
-// Endpoint: /api/editimg
+// EDITIMG CONFIG
 // ============================================================
 
 const editimgIkyyProxy =
@@ -74,13 +73,20 @@ const editimgConfig = {
 let editimgProxyList = [];
 let editimgCurrentProxyIndex = 0;
 
+
+// ============================================================
+// FETCH PROXY
+// ============================================================
+
 async function editimgFetchProxies() {
   const response = await axios.get(editimgIkyyProxy, {
     timeout: 10000
   });
 
   if (!Array.isArray(response.data) || response.data.length === 0) {
-    throw new Error("API proxy mengembalikan data kosong atau bukan array");
+    throw new Error(
+      "API proxy mengembalikan data kosong atau bukan array"
+    );
   }
 
   editimgProxyList = response.data
@@ -112,11 +118,17 @@ async function editimgFetchProxies() {
   editimgCurrentProxyIndex = 0;
 }
 
+
+// ============================================================
+// RANDOM SERIAL
+// ============================================================
+
 function editimgGenerateRandomSerial() {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
     /[xy]/g,
     (char) => {
       const random = (Math.random() * 16) | 0;
+
       const value =
         char === "x"
           ? random
@@ -126,6 +138,11 @@ function editimgGenerateRandomSerial() {
     }
   );
 }
+
+
+// ============================================================
+// HEADERS
+// ============================================================
 
 function editimgGetCleanHeaders(formHeaders = {}) {
   return {
@@ -143,6 +160,11 @@ function editimgGetCleanHeaders(formHeaders = {}) {
   };
 }
 
+
+// ============================================================
+// AXIOS INSTANCE
+// ============================================================
+
 function editimgGetAxiosInstance() {
   if (!editimgProxyList.length) {
     throw new Error("Proxy belum tersedia");
@@ -156,6 +178,11 @@ function editimgGetAxiosInstance() {
   });
 }
 
+
+// ============================================================
+// ROTATE PROXY
+// ============================================================
+
 function editimgRotateProxy() {
   if (!editimgProxyList.length) {
     return;
@@ -166,13 +193,19 @@ function editimgRotateProxy() {
     editimgProxyList.length;
 }
 
+
+// ============================================================
+// CHECK ROUTER
+// ============================================================
+
 async function editimgCheckRouterStatus(apiClient) {
   try {
     await apiClient.get(
       "/api/pai/common/system-parameters",
       {
         params: {
-          full_key: "router_free.photo_editor_me_v6"
+          full_key:
+            "router_free.photo_editor_me_v6"
         },
         headers: editimgGetCleanHeaders()
       }
@@ -184,6 +217,11 @@ async function editimgCheckRouterStatus(apiClient) {
   }
 }
 
+
+// ============================================================
+// CREATE AI JOB
+// ============================================================
+
 async function editimgCreateJobFromUrl(
   apiClient,
   imageUrl,
@@ -191,13 +229,40 @@ async function editimgCreateJobFromUrl(
 ) {
   const form = new FormData();
 
-  form.append("model_name", "magiceraser_v6");
-  form.append("prompt", prompt);
-  form.append("original_image_url", imageUrl);
-  form.append("aspect_ratio", "default");
-  form.append("output_format", "jpg");
-  form.append("mode", "editor");
-  form.append("megapixels", "1");
+  form.append(
+    "model_name",
+    "magiceraser_v6"
+  );
+
+  form.append(
+    "prompt",
+    prompt
+  );
+
+  form.append(
+    "original_image_url",
+    imageUrl
+  );
+
+  form.append(
+    "aspect_ratio",
+    "default"
+  );
+
+  form.append(
+    "output_format",
+    "jpg"
+  );
+
+  form.append(
+    "mode",
+    "editor"
+  );
+
+  form.append(
+    "megapixels",
+    "1"
+  );
 
   const response = await apiClient.post(
     "/api/runtime/jobs/create-job",
@@ -229,20 +294,30 @@ async function editimgCreateJobFromUrl(
         .toLowerCase()
         .includes("insufficient")
     ) {
-      throw new Error("INSUFFICIENT_CREDITS");
+      throw new Error(
+        "INSUFFICIENT_CREDITS"
+      );
     }
 
     throw new Error(message);
   }
 
-  const jobId = response.data?.result?.job_id;
+  const jobId =
+    response.data?.result?.job_id;
 
   if (!jobId) {
-    throw new Error("Job ID tidak ditemukan dari server");
+    throw new Error(
+      "Job ID tidak ditemukan dari server"
+    );
   }
 
   return jobId;
 }
+
+
+// ============================================================
+// POLLING JOB
+// ============================================================
 
 async function editimgPollJobStatus(
   apiClient,
@@ -250,17 +325,24 @@ async function editimgPollJobStatus(
   maxAttempts = 40,
   interval = 3000
 ) {
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const response = await apiClient.get(
-      `/api/runtime/jobs/get-job/${jobId}`,
-      {
-        headers: editimgGetCleanHeaders()
-      }
-    );
+  for (
+    let attempt = 1;
+    attempt <= maxAttempts;
+    attempt++
+  ) {
+    const response =
+      await apiClient.get(
+        `/api/runtime/jobs/get-job/${jobId}`,
+        {
+          headers:
+            editimgGetCleanHeaders()
+        }
+      );
 
     const status =
       response.data?.result?.status;
 
+    // Berhasil
     if (status === 1) {
       const outputUrl =
         response.data?.result?.output_url;
@@ -274,15 +356,18 @@ async function editimgPollJobStatus(
       return outputUrl;
     }
 
+    // Gagal
     if (status === -1) {
       throw new Error(
         "Proses AI gagal di server."
       );
     }
 
+    // Tunggu sebelum polling berikutnya
     if (attempt < maxAttempts) {
-      await new Promise((resolve) =>
-        setTimeout(resolve, interval)
+      await new Promise(
+        (resolve) =>
+          setTimeout(resolve, interval)
       );
     }
   }
@@ -294,17 +379,67 @@ async function editimgPollJobStatus(
 
 
 // ============================================================
-// HANDLER ENDPOINT
+// DOWNLOAD RESULT MEDIA
+// ============================================================
+
+async function editimgDownloadResult(
+  resultUrl
+) {
+  const response = await axios.get(
+    resultUrl,
+    {
+      responseType: "arraybuffer",
+      timeout: 30000,
+      validateStatus: () => true
+    }
+  );
+
+  if (
+    response.status < 200 ||
+    response.status >= 300
+  ) {
+    throw new Error(
+      `Gagal mengambil hasil gambar (HTTP ${response.status})`
+    );
+  }
+
+  const contentType =
+    response.headers["content-type"] ||
+    "image/jpeg";
+
+  return {
+    buffer: Buffer.from(
+      response.data
+    ),
+    contentType
+  };
+}
+
+
+// ============================================================
+// HANDLER: /api/editimg
 // ============================================================
 
 async function handleEditimg(req, res) {
+
+  // ----------------------------------------------------------
+  // METHOD
+  // ----------------------------------------------------------
+
   if (req.method !== "GET") {
     return res.status(405).json({
       status: false,
-      message: "Method tidak diizinkan. Gunakan GET.",
-      error: "Method Not Allowed"
+      message:
+        "Method tidak diizinkan. Gunakan GET.",
+      error:
+        "Method Not Allowed"
     });
   }
+
+
+  // ----------------------------------------------------------
+  // PARAMETERS
+  // ----------------------------------------------------------
 
   const imageUrl =
     req.query?.url ||
@@ -315,15 +450,25 @@ async function handleEditimg(req, res) {
     req.query?.prompt ||
     req.query?.text;
 
+
+  // ----------------------------------------------------------
+  // VALIDATE IMAGE URL
+  // ----------------------------------------------------------
+
   if (!imageUrl) {
     return res.status(400).json({
       status: false,
       message:
-        "Parameter gambar wajib diisi.",
+        "Parameter URL gambar wajib diisi.",
       error:
         'example: "/api/editimg?url=https://example.com/gambar.jpg&prompt=hapus%20orang"'
     });
   }
+
+
+  // ----------------------------------------------------------
+  // VALIDATE PROMPT
+  // ----------------------------------------------------------
 
   if (!prompt) {
     return res.status(400).json({
@@ -335,26 +480,52 @@ async function handleEditimg(req, res) {
     });
   }
 
+
   try {
+
+    // --------------------------------------------------------
+    // GET PROXY
+    // --------------------------------------------------------
+
     await editimgFetchProxies();
 
     let lastError = null;
 
     const maxTotalAttempts =
-      Math.max(editimgProxyList.length * 2, 1);
+      Math.max(
+        editimgProxyList.length * 2,
+        1
+      );
+
+
+    // --------------------------------------------------------
+    // RETRY WITH PROXY
+    // --------------------------------------------------------
 
     for (
       let attempt = 1;
       attempt <= maxTotalAttempts;
       attempt++
     ) {
+
       try {
+
         const apiClient =
           editimgGetAxiosInstance();
+
+
+        // ----------------------------------------------------
+        // CHECK ROUTER
+        // ----------------------------------------------------
 
         await editimgCheckRouterStatus(
           apiClient
         );
+
+
+        // ----------------------------------------------------
+        // CREATE JOB
+        // ----------------------------------------------------
 
         const jobId =
           await editimgCreateJobFromUrl(
@@ -363,41 +534,86 @@ async function handleEditimg(req, res) {
             prompt
           );
 
+
+        // ----------------------------------------------------
+        // WAIT RESULT
+        // ----------------------------------------------------
+
         const resultUrl =
           await editimgPollJobStatus(
             apiClient,
             jobId
           );
 
-        return res.status(200).json({
-          status: true,
-          source: "MagicEraser",
-          data: {
-            job_id: jobId,
-            original_url: imageUrl,
-            prompt,
-            result_url: resultUrl,
-            processed_at:
-              new Date().toISOString()
-          }
-        });
+
+        // ----------------------------------------------------
+        // DOWNLOAD RESULT
+        // ----------------------------------------------------
+
+        const media =
+          await editimgDownloadResult(
+            resultUrl
+          );
+
+
+        // ----------------------------------------------------
+        // SEND MEDIA DIRECTLY
+        // ----------------------------------------------------
+
+        res.setHeader(
+          "Content-Type",
+          media.contentType
+        );
+
+        res.setHeader(
+          "Content-Disposition",
+          'inline; filename="editimg-result.jpg"'
+        );
+
+        res.setHeader(
+          "Cache-Control",
+          "no-store, no-cache, must-revalidate"
+        );
+
+        res.setHeader(
+          "Content-Length",
+          media.buffer.length
+        );
+
+        return res
+          .status(200)
+          .send(media.buffer);
+
       } catch (error) {
+
         lastError = error;
+
+        console.error(
+          `[editimg] Attempt ${attempt} gagal:`,
+          error.message
+        );
 
         editimgRotateProxy();
 
-        if (attempt < maxTotalAttempts) {
-          continue;
-        }
       }
     }
 
-    throw lastError || new Error(
-      "Semua percobaan gagal"
+
+    // --------------------------------------------------------
+    // ALL ATTEMPTS FAILED
+    // --------------------------------------------------------
+
+    throw (
+      lastError ||
+      new Error(
+        "Semua percobaan gagal"
+      )
     );
+
   } catch (error) {
+
     console.error(
-      "[editimg]",
+      "[editimg] Error:",
       error
     );
 
@@ -405,10 +621,12 @@ async function handleEditimg(req, res) {
       status: false,
       message:
         "Gagal memproses gambar dengan AI.",
-      error: error.message
+      error:
+        error.message
     });
   }
 }
+
 //aibod
 // ============================================================
 // AI IMAGE CONFIG
