@@ -51,6 +51,175 @@ async function ensureJsonBody(req) {
     req.body = {};
   }
 }
+//reach ch
+async function handleReactionWa(req, res) {
+  try {
+    if (req.method !== "GET") {
+      return res.status(405).json({
+        status: false,
+        message: "Method harus GET."
+      });
+    }
+
+    const link = String(req.query?.url || "").trim();
+
+    if (!link) {
+      return res.status(400).json({
+        status: false,
+        message: "Parameter url wajib diisi.",
+        example:
+          "/api/reaction-wa?url=https%3A%2F%2Fwhatsapp.com%2Fchannel%2F0029Vb8hiKd0gcfQDpEDdf2n%2F379&emojis=%F0%9F%A4%AA%2C%F0%9F%98%9B%2C%F0%9F%A4%A3%2C%F0%9F%98%82"
+      });
+    }
+
+    let emojis = String(
+      req.query?.emojis || "🔥"
+    )
+      .split(",")
+      .map(e => e.trim())
+      .filter(Boolean);
+
+    if (emojis.length > 4) {
+      emojis = emojis.slice(0, 4);
+    }
+
+    const countRaw = Number(req.query?.count || 1);
+
+    const count =
+      Number.isFinite(countRaw) && countRaw > 0
+        ? Math.floor(countRaw)
+        : 1;
+
+    const baseUrl =
+      "https://amba-react-pi.vercel.app";
+
+    const configUrl =
+      `${baseUrl}/api/config`;
+
+    const reactUrl =
+      `${baseUrl}/api/react`;
+
+    /*
+     * Ambil secret dari config API
+     */
+    let secret;
+
+    try {
+      const configResponse = await axios.get(
+        configUrl,
+        {
+          timeout: 5000,
+          validateStatus: () => true
+        }
+      );
+
+      if (
+        configResponse.status >= 200 &&
+        configResponse.status < 300 &&
+        configResponse.data?.secret
+      ) {
+        secret = configResponse.data.secret;
+      }
+    } catch (_) {
+      // fallback di bawah
+    }
+
+    /*
+     * Fallback secret mengikuti scraper asli.
+     */
+    if (!secret) {
+      secret =
+        "AMBA_ULTRA_SECURE_KEY_2026_XYZ#!";
+    }
+
+    const payload = {
+      mode: "1",
+      link,
+      emoji: emojis.join(","),
+      count
+    };
+
+    const payloadString =
+      JSON.stringify(payload);
+
+    const timestamp =
+      Date.now().toString();
+
+    const message =
+      timestamp + payloadString;
+
+    const signature =
+      crypto
+        .createHmac("sha256", secret)
+        .update(message)
+        .digest("hex");
+
+    /*
+     * Kirim reaction ke server Amba
+     */
+    const response = await axios.post(
+      reactUrl,
+      payloadString,
+      {
+        headers: {
+          "Content-Type":
+            "application/json",
+
+          "X-Timestamp":
+            timestamp,
+
+          "X-Signature":
+            signature,
+
+          "User-Agent":
+            "Mozilla/5.0 (Linux; Android 10; K) " +
+            "AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) " +
+            "Chrome/139.0.0.0 Mobile Safari/537.36"
+        },
+
+        timeout: 120000,
+
+        validateStatus: () => true
+      }
+    );
+
+    if (
+      response.status < 200 ||
+      response.status >= 300
+    ) {
+      return res.status(502).json({
+        status: false,
+        message:
+          response.data?.message ||
+          "Server reaction menolak request.",
+        upstreamStatus:
+          response.status,
+        data:
+          response.data || null
+      });
+    }
+
+    return res.status(200).json({
+      status: true,
+      source: "Amba Reaction",
+      data: response.data
+    });
+
+  } catch (error) {
+    console.error(
+      "Reaction WA Error:",
+      error
+    );
+
+    return res.status(500).json({
+      status: false,
+      message:
+        "Gagal mengirim reaction WhatsApp.",
+      error: error.message
+    });
+  }
+}
 //Pinterest 
 async function handlePinterestSearch(req, res) {
   try {
@@ -3812,6 +3981,8 @@ case "capcut":
   return handleCapcut(req, res);
   case "pinterest-search":
   return handlePinterestSearch(req, res);
+  case "reaction-wa":
+  return handleReactionWa(req, res);
 case "lyrics":
   return handleLyrics(req, res);
     case "tempmail":
