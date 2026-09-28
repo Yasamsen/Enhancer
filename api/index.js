@@ -57,7 +57,7 @@ async function ensureJsonBody(req) {
 //aibody
 // ============================================================
 // AI IMAGE - LIVE3D
-// GET /api/ai-image?prompt=...
+// GET /api/ai-image?prompt=...&negative_prompt=...
 // ============================================================
 
 const AI_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
@@ -72,21 +72,20 @@ const AI_U_ID = "1H5tRtzsBkqXcaJ";
 const AI_FN_NAME = "demo-ai-body-v1";
 const AI_BRAND_KEY = "8f3f0c7387123ae0";
 
-// Internal defaults.
-// User tidak perlu mengirim model/cfg.
+// INTERNAL ONLY
 const AI_MODEL = "AbsoluteReality_v1.8.1.safetensors";
 const AI_CFG = 7;
 
 const AI_THEME_VERSION =
   "83EmcUoQTUv50LhNx0VrdcK8rcGexcP35FcZDcpgWsAXEyO4xqL5shCY6sFIWB2Q";
 
-function aiRandomString(length) {
+function generateRandomString(len) {
   const chars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
   let result = "";
 
-  for (let i = 0; i < length; i++) {
+  for (let i = 0; i < len; i++) {
     result += chars.charAt(
       Math.floor(Math.random() * chars.length)
     );
@@ -95,7 +94,7 @@ function aiRandomString(length) {
   return result;
 }
 
-function aiAesEncrypt(data, key) {
+function aesenc(data, key) {
   const k = CryptoJS.enc.Utf8.parse(key);
 
   const encrypted = CryptoJS.AES.encrypt(
@@ -111,7 +110,7 @@ function aiAesEncrypt(data, key) {
   return encrypted.toString();
 }
 
-function aiRsaEncrypt(data) {
+function rsaenc(data) {
   const buffer = Buffer.from(data, "utf8");
 
   const encrypted = crypto.publicEncrypt(
@@ -125,55 +124,63 @@ function aiRsaEncrypt(data) {
   return encrypted.toString("base64");
 }
 
-function aiCryptoHeaders(type, fp = null) {
-  const now = new Date();
+function gencryptoheaders(type, fp = null) {
+  const e = new Date();
 
-  const timestamp = Math.floor(
+  const n = Math.floor(
     new Date(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate(),
-      now.getUTCHours(),
-      now.getUTCMinutes(),
-      now.getUTCSeconds()
+      e.getUTCFullYear(),
+      e.getUTCMonth(),
+      e.getUTCDate(),
+      e.getUTCHours(),
+      e.getUTCMinutes(),
+      e.getUTCSeconds()
     ).getTime() / 1000
   );
 
-  const requestId = crypto.randomUUID();
+  const r = crypto.randomUUID();
 
-  const randomKey = aiRandomString(16);
+  const i = generateRandomString(16);
 
   const fingerPrint =
     fp || crypto.randomBytes(16).toString("hex");
 
-  const guide = aiRsaEncrypt(randomKey);
+  const s = rsaenc(i);
 
-  const signString =
+  const signStr =
     type === "upload"
-      ? `${AI_APP_ID}:${requestId}:${guide}`
-      : `${AI_APP_ID}:${AI_U_ID}:${timestamp}:${requestId}:${guide}`;
+      ? `${AI_APP_ID}:${r}:${s}`
+      : `${AI_APP_ID}:${AI_U_ID}:${n}:${r}:${s}`;
 
   return {
     fp: fingerPrint,
 
-    fp1: aiAesEncrypt(
+    fp1: aesenc(
       `${AI_APP_ID}:${fingerPrint}`,
-      randomKey
+      i
     ),
 
-    "x-guide": guide,
+    "x-guide": s,
 
-    "x-sign": aiAesEncrypt(
-      signString,
-      randomKey
+    "x-sign": aesenc(
+      signStr,
+      i
     ),
 
     "x-code": Date.now().toString()
   };
 }
 
-async function createAiImageJob(prompt) {
-  const cryptoHeaders = aiCryptoHeaders("create");
+// ============================================================
+// CREATE JOB
+// ============================================================
+
+async function createAiBodyJob(
+  prompt,
+  negativePrompt
+) {
+  const cryptoHeaders =
+    gencryptoheaders("create");
 
   const payload = {
     fn_name: AI_FN_NAME,
@@ -190,9 +197,10 @@ async function createAiImageJob(prompt) {
       model: AI_MODEL,
 
       negative_prompt:
+        negativePrompt ||
         "(worst quality, low quality:1.4), deformed, ugly, bad anatomy, extra limbs",
 
-      prompt,
+      prompt: prompt,
 
       request_from: 9
     },
@@ -210,7 +218,8 @@ async function createAiImageJob(prompt) {
         "User-Agent":
           "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 Chrome/139.0.0.0 Mobile Safari/537.36",
 
-        "theme-version": AI_THEME_VERSION,
+        "theme-version":
+          AI_THEME_VERSION,
 
         ...cryptoHeaders
       },
@@ -221,19 +230,28 @@ async function createAiImageJob(prompt) {
     }
   );
 
+  console.log(
+    "LIVE3D CREATE:",
+    response.status,
+    response.data
+  );
+
   if (
     response.status < 200 ||
     response.status >= 300
   ) {
     throw new Error(
-      `Live3D create HTTP ${response.status}`
+      `Live3D HTTP ${response.status}: ${JSON.stringify(response.data)}`
     );
   }
 
   if (response.data?.code !== 200) {
     throw new Error(
-      response.data?.message ||
-      "Gagal membuat AI image job."
+      JSON.stringify({
+        code: response.data?.code,
+        message: response.data?.message,
+        data: response.data?.data
+      })
     );
   }
 
@@ -242,7 +260,7 @@ async function createAiImageJob(prompt) {
 
   if (!taskId) {
     throw new Error(
-      "Live3D tidak mengembalikan task_id."
+      "Live3D tidak memberikan task_id."
     );
   }
 
@@ -252,9 +270,13 @@ async function createAiImageJob(prompt) {
   };
 }
 
-async function checkAiImageJob(taskId, fp) {
+// ============================================================
+// CHECK JOB
+// ============================================================
+
+async function cekjob(taskId, fp) {
   const cryptoHeaders =
-    aiCryptoHeaders("check", fp);
+    gencryptoheaders("check", fp);
 
   const payload = {
     task_id: taskId,
@@ -276,7 +298,8 @@ async function checkAiImageJob(taskId, fp) {
         "User-Agent":
           "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 Chrome/139.0.0.0 Mobile Safari/537.36",
 
-        "theme-version": AI_THEME_VERSION,
+        "theme-version":
+          AI_THEME_VERSION,
 
         ...cryptoHeaders
       },
@@ -287,17 +310,27 @@ async function checkAiImageJob(taskId, fp) {
     }
   );
 
+  console.log(
+    "LIVE3D CHECK:",
+    response.status,
+    response.data
+  );
+
   if (
     response.status < 200 ||
     response.status >= 300
   ) {
     throw new Error(
-      `Live3D check HTTP ${response.status}`
+      `Live3D check HTTP ${response.status}: ${JSON.stringify(response.data)}`
     );
   }
 
   return response.data?.data || {};
 }
+
+// ============================================================
+// API ENDPOINT
+// ============================================================
 
 async function handleAiImage(req, res) {
   try {
@@ -309,8 +342,11 @@ async function handleAiImage(req, res) {
     }
 
     const prompt =
-      req.query?.prompt ||
-      req.query?.q;
+      req.query?.prompt;
+
+    const negativePrompt =
+      req.query?.negative_prompt ||
+      "";
 
     if (
       !prompt ||
@@ -318,83 +354,125 @@ async function handleAiImage(req, res) {
     ) {
       return res.status(400).json({
         status: false,
-        message: "Parameter prompt wajib diisi.",
+        message:
+          "Parameter prompt wajib diisi.",
+
         example:
-          "/api/ai-image?prompt=anime%20girl%20with%20blue%20hair"
+          "/api/ai-image?prompt=anime%20girl&negative_prompt=bad%20quality"
       });
     }
 
     const cleanPrompt =
       String(prompt).trim();
 
+    const cleanNegativePrompt =
+      String(negativePrompt).trim();
+
     if (cleanPrompt.length > 1000) {
       return res.status(400).json({
         status: false,
         message:
-          "Prompt terlalu panjang. Maksimal 1000 karakter."
+          "Prompt maksimal 1000 karakter."
       });
     }
 
-    const start = Date.now();
+    if (cleanNegativePrompt.length > 1000) {
+      return res.status(400).json({
+        status: false,
+        message:
+          "Negative prompt maksimal 1000 karakter."
+      });
+    }
 
+    const start =
+      Date.now();
+
+    // CREATE
     const {
       taskId,
       fp
-    } = await createAiImageJob(
-      cleanPrompt
+    } = await createAiBodyJob(
+      cleanPrompt,
+      cleanNegativePrompt
     );
 
     let result = null;
 
     const maxAttempts = 30;
 
+    // POLLING
     for (
       let attempt = 0;
       attempt < maxAttempts;
       attempt++
     ) {
-      await new Promise(resolve =>
-        setTimeout(resolve, 5000)
+      await new Promise(
+        resolve =>
+          setTimeout(resolve, 5000)
       );
 
       result =
-        await checkAiImageJob(
+        await cekjob(
           taskId,
           fp
         );
 
-      if (result?.status === 2) {
+      console.log(
+        `AI ATTEMPT ${attempt + 1}:`,
+        result?.status
+      );
+
+      // SUCCESS
+      if (
+        result?.status === 2
+      ) {
         break;
       }
 
-      if (result?.status === 3) {
+      // FAILED / SAFETY
+      if (
+        result?.status === 3
+      ) {
         return res.status(422).json({
           status: false,
+
           message:
-            "Pembuatan gambar ditolak atau gagal oleh server AI.",
-          task_id: taskId
+            "Task gagal atau diblokir oleh safety filter.",
+
+          task_id:
+            taskId
         });
       }
     }
 
+    // TIMEOUT
     if (
       !result ||
       result.status !== 2
     ) {
       return res.status(504).json({
         status: false,
+
         message:
-          "AI image generation timeout.",
-        task_id: taskId
+          "Polling AI timeout.",
+
+        task_id:
+          taskId
       });
     }
 
-    if (!result.result_image) {
+    // IMAGE TIDAK ADA
+    if (
+      !result.result_image
+    ) {
       return res.status(502).json({
         status: false,
+
         message:
-          "AI selesai tetapi URL gambar tidak ditemukan.",
-        task_id: taskId
+          "AI selesai tetapi result_image tidak ditemukan.",
+
+        task_id:
+          taskId
       });
     }
 
@@ -402,6 +480,8 @@ async function handleAiImage(req, res) {
       "https://temp.live3d.io/" +
       result.result_image;
 
+    // RESPONSE PUBLIC
+    // Model dan CFG sengaja tidak ditampilkan.
     return res.status(200).json({
       status: true,
 
@@ -411,32 +491,35 @@ async function handleAiImage(req, res) {
         `${Date.now() - start} ms`,
 
       data: {
-        task_id: taskId,
+        task_id:
+          taskId,
 
-        prompt: cleanPrompt,
+        prompt:
+          cleanPrompt,
 
-        model: AI_MODEL,
+        negative_prompt:
+          cleanNegativePrompt,
 
-        cfg: AI_CFG,
-
-        image_url: imageUrl
+        result_image_url:
+          imageUrl
       }
     });
 
   } catch (error) {
     console.error(
-      "AI Image Error:",
+      "AI IMAGE ERROR:",
       error
     );
 
     return res.status(500).json({
       status: false,
+
       message:
         "Gagal membuat gambar AI.",
+
       error:
-        error?.response?.data ||
         error?.message ||
-        "Unknown error"
+        String(error)
     });
   }
 }
@@ -4550,7 +4633,7 @@ case "capcut":
   return handleReactionWa(req, res);
 case "lyrics":
   return handleLyrics(req, res);
-  case "ai-image":
+case "ai-image":
   return handleAiImage(req, res);
     case "tempmail":
       return handleTempmail(req, res);
