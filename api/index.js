@@ -55,10 +55,6 @@ async function ensureJsonBody(req) {
   }
 }
 //aibod
-import axios from "axios";
-import crypto from "crypto";
-import CryptoJS from "crypto-js";
-
 // ============================================================
 // AI IMAGE CONFIG
 // ============================================================
