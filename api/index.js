@@ -7,6 +7,7 @@ import QRCode from "qrcode";
 import { createHmac } from "node:crypto";
 
 import crypto from "node:crypto";
+import CryptoJS from "crypto-js";
 import vm from "node:vm";
 import { createHash } from "node:crypto";
 // Semua endpoint digabung ke 1 file supaya hanya dihitung 1 Serverless
@@ -54,34 +55,34 @@ async function ensureJsonBody(req) {
   }
 }
 //aibody
-export async function handleAiImage(req, res) {
-/* =========================================================
-   CONFIG
-========================================================= */
+// ============================================================
+// AI IMAGE - LIVE3D
+// GET /api/ai-image?prompt=...
+// ============================================================
 
-const PUBLIC_KEY = `MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCwlO+boC6cwRo3UfXVBadaYwcX
+const AI_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCwlO+boC6cwRo3UfXVBadaYwcX
 0zKS2fuVNY2qZ0dgwb1NJ+/Q9FeAosL4ONiosD71on3PVYqRUlL5045mvH2K9i8b
 AFVMEip7E6RMK6tKAAif7xzZrXnP1GZ5Rijtqdgwh+YmzTo39cuBCsZqK9oEoeQ3
-r/myG9S+9cR5huTuFQIDAQAB`;
+r/myG9S+9cR5huTuFQIDAQAB
+-----END PUBLIC KEY-----`;
 
-const APP_ID = "aifaceswap";
-const U_ID = "1H5tRtzsBkqXcaJ";
-const FN_NAME = "demo-ai-body-v1";
-const BRAND_KEY = "8f3f0c7387123ae0";
+const AI_APP_ID = "aifaceswap";
+const AI_U_ID = "1H5tRtzsBkqXcaJ";
+const AI_FN_NAME = "demo-ai-body-v1";
+const AI_BRAND_KEY = "8f3f0c7387123ae0";
 
-const CREATE_URL =
-  "https://app-v1.live3d.io/aitools/of/create";
+// Internal defaults.
+// User tidak perlu mengirim model/cfg.
+const AI_MODEL = "AbsoluteReality_v1.8.1.safetensors";
+const AI_CFG = 7;
 
-const STATUS_URL =
-  "https://app-v1.live3d.io/aitools/of/check-status";
+const AI_THEME_VERSION =
+  "83EmcUoQTUv50LhNx0VrdcK8rcGexcP35FcZDcpgWsAXEyO4xqL5shCY6sFIWB2Q";
 
-/* =========================================================
-   RANDOM STRING
-========================================================= */
-
-function generateRandomString(length = 16) {
+function aiRandomString(length) {
   const chars =
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
   let result = "";
 
@@ -94,888 +95,350 @@ function generateRandomString(length = 16) {
   return result;
 }
 
-/* =========================================================
-   AES
-========================================================= */
+function aiAesEncrypt(data, key) {
+  const k = CryptoJS.enc.Utf8.parse(key);
 
-function aesenc(data, key) {
-  const keyBuffer = crypto
-    .createHash("sha256")
-    .update(key)
-    .digest();
-
-  const iv = Buffer.from(key, "utf8").subarray(0, 16);
-
-  const cipher = crypto.createCipheriv(
-    "aes-256-cbc",
-    keyBuffer,
-    iv
+  const encrypted = CryptoJS.AES.encrypt(
+    data,
+    k,
+    {
+      iv: k,
+      mode: CryptoJS.mode.CBC,
+      padding: CryptoJS.pad.Pkcs7
+    }
   );
 
-  let encrypted = cipher.update(
-    typeof data === "string"
-      ? data
-      : JSON.stringify(data),
-    "utf8",
-    "base64"
-  );
-
-  encrypted += cipher.final("base64");
-
-  return encrypted;
+  return encrypted.toString();
 }
 
-/* =========================================================
-   RSA
-========================================================= */
+function aiRsaEncrypt(data) {
+  const buffer = Buffer.from(data, "utf8");
 
-function rsaenc(data) {
-  return crypto.publicEncrypt(
+  const encrypted = crypto.publicEncrypt(
     {
-      key: PUBLIC_KEY,
+      key: AI_PUBLIC_KEY,
       padding: crypto.constants.RSA_PKCS1_PADDING
     },
-    Buffer.from(String(data))
-  ).toString("base64");
+    buffer
+  );
+
+  return encrypted.toString("base64");
 }
 
-/* =========================================================
-   CRYPTO HEADERS
-========================================================= */
+function aiCryptoHeaders(type, fp = null) {
+  const now = new Date();
 
-function gencryptoheaders(type, fp = null) {
-  const timestamp = Date.now().toString();
+  const timestamp = Math.floor(
+    new Date(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      now.getUTCHours(),
+      now.getUTCMinutes(),
+      now.getUTCSeconds()
+    ).getTime() / 1000
+  );
 
-  const fingerprint =
-    fp || generateRandomString(32);
+  const requestId = crypto.randomUUID();
 
-  const random =
-    generateRandomString(16);
+  const randomKey = aiRandomString(16);
 
-  const raw = [
-    APP_ID,
-    U_ID,
-    FN_NAME,
-    type,
-    timestamp,
-    fingerprint,
-    random,
-    BRAND_KEY
-  ].join("|");
+  const fingerPrint =
+    fp || crypto.randomBytes(16).toString("hex");
 
-  const encrypted =
-    aesenc(raw, BRAND_KEY);
+  const guide = aiRsaEncrypt(randomKey);
 
-  const signature =
-    crypto
-      .createHash("md5")
-      .update(encrypted)
-      .digest("hex");
+  const signString =
+    type === "upload"
+      ? `${AI_APP_ID}:${requestId}:${guide}`
+      : `${AI_APP_ID}:${AI_U_ID}:${timestamp}:${requestId}:${guide}`;
 
   return {
-    "User-Agent":
-      "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 Chrome/139.0.0.0 Mobile Safari/537.36",
+    fp: fingerPrint,
 
-    "Accept":
-      "application/json, text/plain, */*",
+    fp1: aiAesEncrypt(
+      `${AI_APP_ID}:${fingerPrint}`,
+      randomKey
+    ),
 
-    "Content-Type":
-      "application/json",
+    "x-guide": guide,
 
-    "theme-version":
-      "1.0.0",
+    "x-sign": aiAesEncrypt(
+      signString,
+      randomKey
+    ),
 
-    "x-guide":
-      rsaenc(random),
-
-    "x-sign":
-      signature,
-
-    "x-code":
-      encrypted,
-
-    "x-fp":
-      fingerprint,
-
-    "x-fp1":
-      fingerprint
+    "x-code": Date.now().toString()
   };
 }
 
-/* =========================================================
-   CHECK IMAGE URL
-========================================================= */
-
-async function checkImageUrl(url) {
-  try {
-    const parsed =
-      new URL(url);
-
-    if (
-      !["http:", "https:"]
-        .includes(parsed.protocol)
-    ) {
-      return {
-        ok: false,
-        reason:
-          "URL harus menggunakan HTTP atau HTTPS."
-      };
-    }
-
-    const response =
-      await axios.get(url, {
-        responseType: "arraybuffer",
-        timeout: 15000,
-
-        maxContentLength:
-          15 * 1024 * 1024,
-
-        maxBodyLength:
-          15 * 1024 * 1024,
-
-        validateStatus:
-          () => true,
-
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 Chrome/139.0.0.0 Mobile Safari/537.36",
-
-          Accept:
-            "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
-        }
-      });
-
-    if (
-      response.status < 200 ||
-      response.status >= 300
-    ) {
-      return {
-        ok: false,
-        reason:
-          `HTTP ${response.status}`
-      };
-    }
-
-    const contentType =
-      String(
-        response.headers["content-type"] || ""
-      ).toLowerCase();
-
-    if (
-      !contentType.startsWith("image/")
-    ) {
-      return {
-        ok: false,
-        reason:
-          "URL bukan file gambar."
-      };
-    }
-
-    return {
-      ok: true,
-      contentType
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      reason:
-        error.message
-    };
-  }
-}
-
-/* =========================================================
-   CREATE TEXT JOB
-========================================================= */
-
-async function createTextJob({
-  prompt,
-  negativePrompt,
-  model,
-  cfg
-}) {
-  const fp =
-    generateRandomString(32);
-
-  const headers =
-    gencryptoheaders(
-      "create",
-      fp
-    );
+async function createAiImageJob(prompt) {
+  const cryptoHeaders = aiCryptoHeaders("create");
 
   const payload = {
-    fn_name:
-      FN_NAME,
+    fn_name: AI_FN_NAME,
 
-    call_type:
-      3,
+    call_type: 3,
 
-    data:
-      "",
+    data: "",
 
     input: {
-      cfg,
+      cfg: AI_CFG,
 
       lora: [],
 
-      model,
+      model: AI_MODEL,
 
       negative_prompt:
-        negativePrompt ||
         "(worst quality, low quality:1.4), deformed, ugly, bad anatomy, extra limbs",
 
       prompt,
 
-      request_from:
-        9
+      request_from: 9
     },
 
-    origin_from:
-      BRAND_KEY,
+    origin_from: AI_BRAND_KEY,
 
-    request_from:
-      9
+    request_from: 9
   };
 
-  const response =
-    await axios.post(
-      CREATE_URL,
-      payload,
-      {
-        headers,
-        timeout: 30000,
-        validateStatus:
-          () => true
-      }
-    );
+  const response = await axios.post(
+    "https://app-v1.live3d.io/aitools/of/create",
+    payload,
+    {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 Chrome/139.0.0.0 Mobile Safari/537.36",
+
+        "theme-version": AI_THEME_VERSION,
+
+        ...cryptoHeaders
+      },
+
+      timeout: 30000,
+
+      validateStatus: () => true
+    }
+  );
 
   if (
     response.status < 200 ||
     response.status >= 300
   ) {
     throw new Error(
-      `Create job gagal: HTTP ${response.status}`
+      `Live3D create HTTP ${response.status}`
     );
   }
 
-  const data =
-    response.data;
+  if (response.data?.code !== 200) {
+    throw new Error(
+      response.data?.message ||
+      "Gagal membuat AI image job."
+    );
+  }
 
   const taskId =
-    data?.task_id ||
-    data?.data?.task_id ||
-    data?.result?.task_id;
+    response.data?.data?.task_id;
 
   if (!taskId) {
     throw new Error(
-      "Task ID tidak ditemukan."
+      "Live3D tidak mengembalikan task_id."
     );
   }
 
   return {
     taskId,
-    fp,
-    raw: data
+    fp: cryptoHeaders.fp
   };
 }
 
-/* =========================================================
-   CREATE PHOTO JOB
-========================================================= */
-
-async function createPhotoJob({
-  imageUrl,
-  prompt,
-  negativePrompt,
-  model,
-  cfg
-}) {
-  /*
-   * Parameter foto belum didokumentasikan
-   * secara resmi oleh endpoint sumber.
-   *
-   * Kita coba beberapa bentuk payload.
-   */
-
-  const variants = [
-    {
-      fn_name:
-        FN_NAME,
-
-      call_type:
-        3,
-
-      data:
-        "",
-
-      input: {
-        cfg,
-        lora: [],
-        model,
-
-        image_url:
-          imageUrl,
-
-        negative_prompt:
-          negativePrompt ||
-          "(worst quality, low quality:1.4), deformed, ugly, bad anatomy, extra limbs",
-
-        prompt,
-
-        request_from:
-          9
-      },
-
-      origin_from:
-        BRAND_KEY,
-
-      request_from:
-        9
-    },
-
-    {
-      fn_name:
-        FN_NAME,
-
-      call_type:
-        3,
-
-      data:
-        "",
-
-      input: {
-        cfg,
-        lora: [],
-        model,
-
-        image:
-          imageUrl,
-
-        negative_prompt:
-          negativePrompt ||
-          "(worst quality, low quality:1.4), deformed, ugly, bad anatomy, extra limbs",
-
-        prompt,
-
-        request_from:
-          9
-      },
-
-      origin_from:
-        BRAND_KEY,
-
-      request_from:
-        9
-    },
-
-    {
-      fn_name:
-        FN_NAME,
-
-      call_type:
-        3,
-
-      data:
-        "",
-
-      input: {
-        cfg,
-        lora: [],
-        model,
-
-        init_image:
-          imageUrl,
-
-        negative_prompt:
-          negativePrompt ||
-          "(worst quality, low quality:1.4), deformed, ugly, bad anatomy, extra limbs",
-
-        prompt,
-
-        request_from:
-          9
-      },
-
-      origin_from:
-        BRAND_KEY,
-
-      request_from:
-        9
-    }
-  ];
-
-  let lastError =
-    "Mode foto tidak didukung.";
-
-  for (
-    const payload of variants
-  ) {
-    try {
-      const fp =
-        generateRandomString(32);
-
-      const headers =
-        gencryptoheaders(
-          "create",
-          fp
-        );
-
-      const response =
-        await axios.post(
-          CREATE_URL,
-          payload,
-          {
-            headers,
-            timeout: 30000,
-            validateStatus:
-              () => true
-          }
-        );
-
-      if (
-        response.status < 200 ||
-        response.status >= 300
-      ) {
-        lastError =
-          `HTTP ${response.status}`;
-
-        continue;
-      }
-
-      const data =
-        response.data;
-
-      const taskId =
-        data?.task_id ||
-        data?.data?.task_id ||
-        data?.result?.task_id;
-
-      if (!taskId) {
-        lastError =
-          "Server tidak memberikan task_id.";
-
-        continue;
-      }
-
-      return {
-        success:
-          true,
-
-        taskId,
-
-        fp,
-
-        raw:
-          data
-      };
-    } catch (error) {
-      lastError =
-        error.message;
-    }
-  }
-
-  return {
-    success:
-      false,
-
-    error:
-      lastError
-  };
-}
-
-/* =========================================================
-   CHECK JOB
-========================================================= */
-
-async function checkJob(
-  taskId,
-  fp
-) {
-  const headers =
-    gencryptoheaders(
-      "check-status",
-      fp
-    );
+async function checkAiImageJob(taskId, fp) {
+  const cryptoHeaders =
+    aiCryptoHeaders("check", fp);
 
   const payload = {
-    task_id:
-      taskId,
+    task_id: taskId,
 
-    fn_name:
-      FN_NAME,
+    fn_name: AI_FN_NAME,
 
-    call_type:
-      3,
+    call_type: 3,
 
-    request_from:
-      9,
+    request_from: 9,
 
-    origin_from:
-      BRAND_KEY
+    origin_from: AI_BRAND_KEY
   };
 
-  const response =
-    await axios.post(
-      STATUS_URL,
-      payload,
-      {
-        headers,
-        timeout: 30000,
-        validateStatus:
-          () => true
-      }
-    );
+  const response = await axios.post(
+    "https://app-v1.live3d.io/aitools/of/check-status",
+    payload,
+    {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 Chrome/139.0.0.0 Mobile Safari/537.36",
+
+        "theme-version": AI_THEME_VERSION,
+
+        ...cryptoHeaders
+      },
+
+      timeout: 30000,
+
+      validateStatus: () => true
+    }
+  );
 
   if (
     response.status < 200 ||
     response.status >= 300
   ) {
     throw new Error(
-      `Check status gagal: HTTP ${response.status}`
+      `Live3D check HTTP ${response.status}`
     );
   }
 
-  return response.data;
+  return response.data?.data || {};
 }
 
-/* =========================================================
-   PARSE STATUS
-========================================================= */
-
-function parseJobStatus(data) {
-  const result =
-    data?.result ||
-    data?.data ||
-    data;
-
-  const status =
-    result?.status ??
-    data?.status;
-
-  const image =
-    result?.result_image ||
-    result?.result_image_url ||
-    data?.result_image ||
-    data?.result_image_url;
-
-  return {
-    status,
-    image
-  };
-}
-
-/* =========================================================
-   WAIT RESULT
-========================================================= */
-
-async function waitForResult(
-  taskId,
-  fp
-) {
-  const MAX_ATTEMPTS =
-    30;
-
-  for (
-    let attempt = 1;
-    attempt <= MAX_ATTEMPTS;
-    attempt++
-  ) {
-    const data =
-      await checkJob(
-        taskId,
-        fp
-      );
-
-    const parsed =
-      parseJobStatus(data);
-
-    if (
-      parsed.status === 2 ||
-      parsed.image
-    ) {
-      if (
-        !parsed.image
-      ) {
-        throw new Error(
-          "Hasil gambar tidak ditemukan."
-        );
-      }
-
-      let imageUrl =
-        String(
-          parsed.image
-        );
-
-      if (
-        !/^https?:\/\//i
-          .test(imageUrl)
-      ) {
-        imageUrl =
-          `https://temp.live3d.io/${imageUrl}`;
-      }
-
-      return {
-        imageUrl,
-        raw:
-          data
-      };
-    }
-
-    if (
-      parsed.status === 3
-    ) {
-      throw new Error(
-        "Generate ditolak atau gagal diproses."
-      );
-    }
-
-    await new Promise(
-      resolve =>
-        setTimeout(
-          resolve,
-          5000
-        )
-    );
-  }
-
-  throw new Error(
-    "Timeout menunggu hasil AI."
-  );
-}
-
-/* =========================================================
-   MAIN ENDPOINT
-========================================================= */
-
-export async function handleAiImage(
-  req,
-  res
-) {
-  const started =
-    Date.now();
-
+async function handleAiImage(req, res) {
   try {
-    if (
-      req.method !== "GET"
-    ) {
-      return res
-        .status(405)
-        .json({
-          status: false,
-          message:
-            "Method harus GET."
-        });
+    if (req.method !== "GET") {
+      return res.status(405).json({
+        status: false,
+        message: "Method harus GET."
+      });
     }
 
     const prompt =
-      String(
-        req.query?.prompt ||
-        req.query?.text ||
-        ""
-      ).trim();
+      req.query?.prompt ||
+      req.query?.q;
+
+    if (
+      !prompt ||
+      !String(prompt).trim()
+    ) {
+      return res.status(400).json({
+        status: false,
+        message: "Parameter prompt wajib diisi.",
+        example:
+          "/api/ai-image?prompt=anime%20girl%20with%20blue%20hair"
+      });
+    }
+
+    const cleanPrompt =
+      String(prompt).trim();
+
+    if (cleanPrompt.length > 1000) {
+      return res.status(400).json({
+        status: false,
+        message:
+          "Prompt terlalu panjang. Maksimal 1000 karakter."
+      });
+    }
+
+    const start = Date.now();
+
+    const {
+      taskId,
+      fp
+    } = await createAiImageJob(
+      cleanPrompt
+    );
+
+    let result = null;
+
+    const maxAttempts = 30;
+
+    for (
+      let attempt = 0;
+      attempt < maxAttempts;
+      attempt++
+    ) {
+      await new Promise(resolve =>
+        setTimeout(resolve, 5000)
+      );
+
+      result =
+        await checkAiImageJob(
+          taskId,
+          fp
+        );
+
+      if (result?.status === 2) {
+        break;
+      }
+
+      if (result?.status === 3) {
+        return res.status(422).json({
+          status: false,
+          message:
+            "Pembuatan gambar ditolak atau gagal oleh server AI.",
+          task_id: taskId
+        });
+      }
+    }
+
+    if (
+      !result ||
+      result.status !== 2
+    ) {
+      return res.status(504).json({
+        status: false,
+        message:
+          "AI image generation timeout.",
+        task_id: taskId
+      });
+    }
+
+    if (!result.result_image) {
+      return res.status(502).json({
+        status: false,
+        message:
+          "AI selesai tetapi URL gambar tidak ditemukan.",
+        task_id: taskId
+      });
+    }
 
     const imageUrl =
-      String(
-        req.query?.url ||
-        ""
-      ).trim();
+      "https://temp.live3d.io/" +
+      result.result_image;
 
-    const negativePrompt =
-      String(
-        req.query?.negative_prompt ||
-        ""
-      ).trim();
+    return res.status(200).json({
+      status: true,
 
-    const model =
-      String(
-        req.query?.model ||
-        "AbsoluteReality_v1.8.1.safetensors"
-      );
+      source: "Live3D",
 
-    let cfg =
-      Number(
-        req.query?.cfg ||
-        7
-      );
+      runtime:
+        `${Date.now() - start} ms`,
 
-    if (
-      !Number.isFinite(cfg)
-    ) {
-      cfg = 7;
-    }
+      data: {
+        task_id: taskId,
 
-    if (
-      !prompt
-    ) {
-      return res
-        .status(400)
-        .json({
-          status: false,
+        prompt: cleanPrompt,
 
-          message:
-            "Parameter prompt wajib diisi.",
+        model: AI_MODEL,
 
-          example:
-            "/api/ai-image?prompt=anime%20girl"
-        });
-    }
+        cfg: AI_CFG,
 
-    let mode =
-      "text";
-
-    let fallbackReason =
-      null;
-
-    let job =
-      null;
-
-    /* =====================================================
-       COBA URL FOTO
-    ===================================================== */
-
-    if (imageUrl) {
-      try {
-        new URL(imageUrl);
-
-        const checked =
-          await checkImageUrl(
-            imageUrl
-          );
-
-        if (!checked.ok) {
-          fallbackReason =
-            checked.reason;
-        }
-      } catch (error) {
-        fallbackReason =
-          error.message;
+        image_url: imageUrl
       }
+    });
 
-      if (
-        !fallbackReason
-      ) {
-        const photoJob =
-          await createPhotoJob({
-            imageUrl,
-            prompt,
-            negativePrompt,
-            model,
-            cfg
-          });
-
-        if (
-          photoJob.success
-        ) {
-          job = {
-            taskId:
-              photoJob.taskId,
-
-            fp:
-              photoJob.fp
-          };
-
-          mode =
-            "photo";
-        } else {
-          fallbackReason =
-            photoJob.error;
-        }
-      }
-    }
-
-    /* =====================================================
-       FALLBACK TEXT
-    ===================================================== */
-
-    if (!job) {
-      const textJob =
-        await createTextJob({
-          prompt,
-          negativePrompt,
-          model,
-          cfg
-        });
-
-      job = {
-        taskId:
-          textJob.taskId,
-
-        fp:
-          textJob.fp
-      };
-
-      mode =
-        "text";
-    }
-
-    /* =====================================================
-       WAIT
-    ===================================================== */
-
-    const result =
-      await waitForResult(
-        job.taskId,
-        job.fp
-      );
-
-    return res
-      .status(200)
-      .json({
-        status:
-          true,
-
-        creator:
-          "yasamDev",
-
-        runtime:
-          `${Date.now() - started} ms`,
-
-        mode,
-
-        ...(fallbackReason
-          ? {
-              message:
-                "URL foto tidak dapat diproses, otomatis menggunakan prompt text.",
-
-              fallback_reason:
-                fallbackReason
-            }
-          : {}),
-
-        result: {
-          task_id:
-            job.taskId,
-
-          prompt,
-
-          negative_prompt:
-            negativePrompt ||
-            "(worst quality, low quality:1.4), deformed, ugly, bad anatomy, extra limbs",
-
-          result_image_url:
-            result.imageUrl
-        }
-      });
   } catch (error) {
     console.error(
-      "AI IMAGE ERROR:",
+      "AI Image Error:",
       error
     );
 
-    return res
-      .status(500)
-      .json({
-        status:
-          false,
-
-        message:
-          "Gagal memproses AI image.",
-
-        error:
-          error.message
-      });
+    return res.status(500).json({
+      status: false,
+      message:
+        "Gagal membuat gambar AI.",
+      error:
+        error?.response?.data ||
+        error?.message ||
+        "Unknown error"
+    });
   }
-}
 }
 //terabox
 async function handleTerabox(req, res) {
@@ -5083,12 +4546,12 @@ case "capcut":
   return handleTerabox(req, res);
   case "pinterest-search":
   return handlePinterestSearch(req, res);
-  case "ai-image":
-  return handleAiImage(req, res);
   case "reaction-wa":
   return handleReactionWa(req, res);
 case "lyrics":
   return handleLyrics(req, res);
+  case "ai-image":
+  return handleAiImage(req, res);
     case "tempmail":
       return handleTempmail(req, res);
     default:
