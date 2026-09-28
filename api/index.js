@@ -279,25 +279,272 @@ async function handlePinterestSearch(req, res) {
         [unique[j], unique[i]];
     }
 
+async function handlePinterestSearch(req, res) {
+  try {
+    if (req.method !== "GET") {
+      return res.status(405).json({
+        status: false,
+        message: "Method harus GET."
+      });
+    }
+
+    const query = String(req.query?.q || "").trim();
+
+    if (!query) {
+      return res.status(400).json({
+        status: false,
+        message: "Parameter q wajib diisi.",
+        example: "/api/pinterest-search?q=alya"
+      });
+    }
+
+    const BASE_URL = "https://www.pinterest.com";
+
+    const USER_AGENT =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+      "AppleWebKit/537.36 (KHTML, like Gecko) " +
+      "Chrome/142.0.0.0 Safari/537.36";
+
     /*
-     * Tanpa parameter limit.
-     * Kita kembalikan maksimal 10 hasil acak
-     * supaya response tidak terlalu besar.
+     * Buka halaman Pinterest terlebih dahulu
+     * untuk mendapatkan cookie/session.
      */
-    const randomResults = unique.slice(0, 10);
+    const homeResponse = await axios.get(
+      `${BASE_URL}/search/pins/?q=${encodeURIComponent(query)}`,
+      {
+        headers: {
+          "User-Agent": USER_AGENT,
+          "Accept":
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+          "Accept-Language":
+            "en-US,en;q=0.9,id;q=0.8",
+          "Upgrade-Insecure-Requests": "1"
+        },
+        timeout: 20000,
+        validateStatus: () => true
+      }
+    );
+
+    const setCookies =
+      homeResponse.headers?.["set-cookie"] || [];
+
+    const cookieHeader = setCookies
+      .map(cookie => cookie.split(";")[0])
+      .filter(Boolean)
+      .join("; ");
+
+    /*
+     * Pinterest internal search request.
+     */
+    const searchOptions = {
+      query: query,
+      scope: "pins",
+      bookmarks: []
+    };
+
+    const searchData = {
+      options: searchOptions,
+      context: {}
+    };
+
+    const sourceUrl =
+      `/search/pins/?q=${encodeURIComponent(query)}`;
+
+    const apiUrl =
+      `${BASE_URL}/resource/BaseSearchResource/get/` +
+      `?source_url=${encodeURIComponent(sourceUrl)}` +
+      `&data=${encodeURIComponent(JSON.stringify(searchData))}` +
+      `&_=${Date.now()}`;
+
+    const searchResponse = await axios.get(apiUrl, {
+      headers: {
+        "User-Agent": USER_AGENT,
+        "Accept":
+          "application/json, text/javascript, */*; q=0.01",
+        "Accept-Language":
+          "en-US,en;q=0.9,id;q=0.8",
+
+        /*
+         * Header penting agar Pinterest mengenali
+         * request sebagai request dari web app.
+         */
+        "x-pinterest-pws-handler":
+          "www/search/[scope].js",
+
+        "X-Requested-With": "XMLHttpRequest",
+
+        "Referer":
+          `${BASE_URL}/search/pins/?q=${encodeURIComponent(query)}`,
+
+        "Cookie": cookieHeader
+      },
+
+      timeout: 30000,
+      validateStatus: () => true
+    });
+
+    if (
+      searchResponse.status < 200 ||
+      searchResponse.status >= 300
+    ) {
+      return res.status(502).json({
+        status: false,
+        message: "Pinterest menolak request pencarian.",
+        upstreamStatus: searchResponse.status,
+        data: searchResponse.data
+      });
+    }
+
+    const resourceResponse =
+      searchResponse.data?.resource_response;
+
+    if (!resourceResponse) {
+      return res.status(502).json({
+        status: false,
+        message: "Response Pinterest tidak memiliki resource_response.",
+        data: searchResponse.data
+      });
+    }
+
+    const rawResults =
+      resourceResponse?.data?.results || [];
+
+    if (!Array.isArray(rawResults)) {
+      return res.status(502).json({
+        status: false,
+        message: "Data hasil pencarian Pinterest tidak valid."
+      });
+    }
+
+    const results = [];
+
+    for (const pin of rawResults) {
+      if (!pin || typeof pin !== "object") {
+        continue;
+      }
+
+      const pinId =
+        pin.id ||
+        pin.pin_id ||
+        null;
+
+      if (!pinId) {
+        continue;
+      }
+
+      const images =
+        pin.images ||
+        {};
+
+      let image = "";
+
+      /*
+       * Prioritaskan gambar original.
+       */
+      if (images?.orig?.url) {
+        image = images.orig.url;
+      } else {
+        const imagePriority = [
+          "1200x",
+          "736x",
+          "564x",
+          "474x",
+          "400x300",
+          "236x"
+        ];
+
+        for (const size of imagePriority) {
+          if (images?.[size]?.url) {
+            image = images[size].url;
+            break;
+          }
+        }
+      }
+
+      if (!image) {
+        continue;
+      }
+
+      const richSummary =
+        pin.rich_summary || {};
+
+      results.push({
+        title:
+          pin.title ||
+          pin.grid_title ||
+          "",
+
+        description:
+          pin.description ||
+          richSummary.display_description ||
+          "",
+
+        pin_id: String(pinId),
+
+        pin_url:
+          pin.link ||
+          `https://www.pinterest.com/pin/${pinId}/`,
+
+        image
+      });
+    }
+
+    /*
+     * Hilangkan duplicate Pin.
+     */
+    const uniqueResults = Array.from(
+      new Map(
+        results.map(item => [
+          item.pin_id,
+          item
+        ])
+      ).values()
+    );
+
+    /*
+     * Acak hasil.
+     */
+    for (
+      let i = uniqueResults.length - 1;
+      i > 0;
+      i--
+    ) {
+      const j =
+        Math.floor(Math.random() * (i + 1));
+
+      [
+        uniqueResults[i],
+        uniqueResults[j]
+      ] = [
+        uniqueResults[j],
+        uniqueResults[i]
+      ];
+    }
+
+    /*
+     * Tanpa parameter limit dari user.
+     * Kita ambil maksimal 10 hasil agar response
+     * tetap ringan untuk Vercel.
+     */
+    const finalResults =
+      uniqueResults.slice(0, 10);
 
     return res.status(200).json({
       status: true,
       source: "Pinterest",
+
       data: {
         query,
-        total: randomResults.length,
-        results: randomResults
+        total: finalResults.length,
+        results: finalResults
       }
     });
 
   } catch (error) {
-    console.error("Pinterest Search Error:", error);
+    console.error(
+      "Pinterest Search Error:",
+      error
+    );
 
     return res.status(500).json({
       status: false,
