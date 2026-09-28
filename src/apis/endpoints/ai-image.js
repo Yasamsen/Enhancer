@@ -4,218 +4,105 @@ export default {
   name: "AI Image Generator",
 
   description:
-    "Generate gambar menggunakan AI berdasarkan prompt. Endpoint dapat mencoba menggunakan URL foto terlebih dahulu dan otomatis menggunakan mode text jika URL foto tidak dapat diproses.",
+    "Membuat gambar menggunakan AI berdasarkan prompt teks.",
 
   category: "AI",
 
   method: "GET",
 
-  endpoint:
-    "/api/ai-image",
+  endpoint: "/api/ai-image",
 
   icon:
-    "https://www.google.com/s2/favicons?domain=aifaceswap.io&sz=128",
+    "https://www.google.com/s2/favicons?domain=live3d.io&sz=128",
 
   parameters: [
     {
       name: "prompt",
-
       type: "string",
-
       required: true,
-
       description:
-        "Prompt atau deskripsi gambar yang ingin dibuat.",
-
+        "Deskripsi gambar yang ingin dibuat.",
       example:
         "anime girl with blue hair"
-    },
-
-    {
-      name: "url",
-
-      type: "string",
-
-      required: false,
-
-      description:
-        "URL gambar yang ingin dicoba sebagai input foto. Jika URL kosong atau tidak dapat diproses, endpoint otomatis menggunakan mode text.",
-
-      example:
-        "https://example.com/image.jpg"
-    },
-
-    {
-      name: "negative_prompt",
-
-      type: "string",
-
-      required: false,
-
-      description:
-        "Prompt untuk memberi tahu AI elemen yang ingin dihindari.",
-
-      example:
-        "low quality, blurry, deformed"
-    },
-
-    {
-      name: "model",
-
-      type: "string",
-
-      required: false,
-
-      description:
-        "Model AI yang digunakan untuk generate gambar.",
-
-      example:
-        "AbsoluteReality_v1.8.1.safetensors"
-    },
-
-    {
-      name: "cfg",
-
-      type: "number",
-
-      required: false,
-
-      description:
-        "Nilai CFG untuk pengaturan kekuatan prompt.",
-
-      example:
-        7
     }
   ],
 
   responseExample: {
     status: true,
-
-    creator: "yasamDev",
-
-    runtime: "12500 ms",
-
-    mode: "text",
-
-    message:
-      "URL foto tidak dapat diproses, otomatis menggunakan prompt text.",
-
-    fallback_reason:
-      "Mode foto tidak didukung.",
-
-    result: {
+    source: "Live3D",
+    runtime: "15234 ms",
+    data: {
       task_id:
         "example-task-id",
 
       prompt:
         "anime girl with blue hair",
 
-      negative_prompt:
-        "low quality, blurry",
+      model:
+        "AbsoluteReality_v1.8.1.safetensors",
 
-      result_image_url:
-        "https://temp.live3d.io/example-image.jpg"
+      cfg: 7,
+
+      image_url:
+        "https://temp.live3d.io/example.jpg"
     }
   },
 
   responseFields: [
     {
       name: "status",
-
       type: "boolean",
-
       description:
         "Status request."
     },
 
     {
-      name: "creator",
-
+      name: "source",
       type: "string",
-
       description:
-        "Nama pembuat endpoint."
+        "Sumber AI image."
     },
 
     {
       name: "runtime",
-
       type: "string",
-
       description:
-        "Waktu yang diperlukan untuk memproses request."
+        "Waktu yang diperlukan untuk menghasilkan gambar."
     },
 
     {
-      name: "mode",
-
+      name: "data.task_id",
       type: "string",
-
       description:
-        "Mode yang digunakan. Nilainya dapat berupa photo atau text."
+        "ID task dari server AI."
     },
 
     {
-      name: "message",
-
+      name: "data.prompt",
       type: "string",
-
-      description:
-        "Pesan fallback jika URL foto tidak dapat diproses."
-    },
-
-    {
-      name: "fallback_reason",
-
-      type: "string",
-
-      description:
-        "Alasan mode foto gagal dan endpoint menggunakan mode text."
-    },
-
-    {
-      name: "result",
-
-      type: "object",
-
-      description:
-        "Hasil generate AI."
-    },
-
-    {
-      name: "result.task_id",
-
-      type: "string",
-
-      description:
-        "ID task generate AI."
-    },
-
-    {
-      name: "result.prompt",
-
-      type: "string",
-
       description:
         "Prompt yang digunakan."
     },
 
     {
-      name: "result.negative_prompt",
-
+      name: "data.model",
       type: "string",
-
       description:
-        "Negative prompt yang digunakan."
+        "Model yang digunakan oleh server."
     },
 
     {
-      name: "result.result_image_url",
-
-      type: "string",
-
+      name: "data.cfg",
+      type: "number",
       description:
-        "URL gambar hasil generate."
+        "Nilai CFG yang digunakan."
+    },
+
+    {
+      name: "data.image_url",
+      type: "string",
+      description:
+        "URL hasil gambar."
     }
   ],
 
