@@ -55,12 +55,10 @@ async function ensureJsonBody(req) {
   }
 }
 //aibod
-const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
-MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCwlO+boC6cwRo3UfXVBadaYwcX
+const PUBLIC_KEY = `MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCwlO+boC6cwRo3UfXVBadaYwcX
 0zKS2fuVNY2qZ0dgwb1NJ+/Q9FeAosL4ONiosD71on3PVqRUlL5045mvH2K9i8b
 AFVMEip7E6RMK6tKAAif7xzZrXnP1GZ5Rijtqdgwh+YmzTo39cuBCsZqK9oEoeQ3
-r/myG9S+9cR5huTuFQIDAQAB
------END PUBLIC KEY-----`;
+r/myG9S+9cR5huTuFQIDAQAB`;
 
 const APP_ID = "aifaceswap";
 const U_ID = "1H5tRtzsBkqXcaJ";
