@@ -56,8 +56,8 @@ async function ensureJsonBody(req) {
     req.body = {};
   }
 }
-//jadihijab
-async function handleJadihijab(req, res) {
+//ig
+async function handleInstagram(req, res) {
   if (req.method !== "GET") {
     return res.status(405).json({
       status: false,
@@ -67,79 +67,75 @@ async function handleJadihijab(req, res) {
   }
 
   try {
-    const imageUrl =
+    const link =
       req.query?.url ||
-      req.query?.image ||
-      req.query?.link;
+      req.query?.link ||
+      req.query?.video;
 
-    if (!imageUrl) {
+    if (!link) {
       return res.status(400).json({
         status: false,
         message: "Parameter url wajib diisi.",
-        example: "/api/jadihijab?url=https://example.com/gambar.jpg"
+        example:
+          "/api/instagram?url=https://www.instagram.com/reel/xxxx/"
       });
     }
 
-    try {
-      const parsedUrl = new URL(imageUrl);
+    let parsedUrl;
 
-      if (!["http:", "https:"].includes(parsedUrl.protocol)) {
-        throw new Error("Invalid protocol");
-      }
+    try {
+      parsedUrl = new URL(link);
     } catch {
       return res.status(400).json({
         status: false,
-        message: "URL gambar tidak valid.",
-        example: "/api/jadihijab?url=https://example.com/gambar.jpg"
+        message: "URL Instagram tidak valid.",
+        example:
+          "/api/instagram?url=https://www.instagram.com/reel/xxxx/"
       });
     }
 
-    const { data } = await axios.get(
-      "https://api.ikyyxd.my.id/edit/nanobananav3",
+    if (
+      !["instagram.com", "www.instagram.com", "instagr.am"].includes(
+        parsedUrl.hostname
+      ) &&
+      !parsedUrl.hostname.endsWith(".instagram.com")
+    ) {
+      return res.status(400).json({
+        status: false,
+        message: "URL harus berasal dari Instagram."
+      });
+    }
+
+    const { data } = await axios.post(
+      "https://www.instaloadr.com/api/fetch",
       {
-        params: {
-          prompt: "ubahkan foto tersebut menjadi hijab",
-          url: imageUrl
+        url: link,
+        media_type: "post"
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
+          Referer: "https://www.instaloadr.com/",
+          Origin: "https://www.instaloadr.com"
         },
-        timeout: 120000
+        timeout: 30000
       }
     );
 
-    if (!data?.status) {
-      return res.status(500).json({
-        status: false,
-        message: "Gagal memproses gambar.",
-        error: data?.message || "API AI gagal memproses gambar."
-      });
-    }
-
-    const resultUrl = data?.result?.result_url;
-
-    if (!resultUrl) {
-      return res.status(500).json({
-        status: false,
-        message: "Hasil gambar tidak ditemukan.",
-        error: "API tidak mengembalikan result_url."
-      });
-    }
-
     return res.status(200).json({
       status: true,
-      source: "Nano Banana V3",
-      data: {
-        prompt: "ubahkan foto tersebut menjadi hijab",
-        original_url: imageUrl,
-        result_url: resultUrl
-      }
+      source: "InstaLoadr",
+      data
     });
-
   } catch (error) {
-    console.error("Jadihijab Error:", error);
+    console.error("Instagram Downloader Error:", error);
 
     return res.status(500).json({
       status: false,
-      message: "Gagal mengubah gambar menjadi hijab.",
-      error: error.message
+      message: "Gagal mengambil media Instagram.",
+      error: error.response?.data?.message || error.message
     });
   }
 }
@@ -5722,8 +5718,8 @@ case "capcut":
   return handleFacebook(req, res);
 case "lyrics":
   return handleLyrics(req, res);
-  case "jadihijab":
-  return handleJadihijab(req, res);
+  case "instagram":
+  return handleInstagram(req, res);
 case "ai-image":
       return handleAiImage(req, res);
     case "tempmail":
