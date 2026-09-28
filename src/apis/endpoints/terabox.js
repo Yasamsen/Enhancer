@@ -13,7 +13,7 @@ export default {
   endpoint: "/api/terabox",
 
   icon:
-    "https://www.google.com/s2/favicons?domain=terabox.com&sz=128",
+    "Cloud",
 
   parameters: [
     {
