@@ -6,6 +6,7 @@ import fs from "fs";
 import QRCode from "qrcode";
 import { createHmac } from "node:crypto";
 
+import FormData from "form-data";
 import crypto from "node:crypto";
 import CryptoJS from "crypto-js";
 import vm from "node:vm";
@@ -52,6 +53,360 @@ async function ensureJsonBody(req) {
     req.body = Object.fromEntries(new URLSearchParams(raw));
   } else {
     req.body = {};
+  }
+}
+// ============================================================
+// EDIT IMAGE AI - MagicEraser
+// Endpoint: /api/editimg
+// ============================================================
+
+const editimgIkyyProxy =
+  "https://api.ikyyxd.my.id/v2l/proxy-free/ikyy-xsample";
+
+const editimgConfig = {
+  baseUrl: "https://api-v2.imgupscaler.ai",
+  referer: "https://magiceraser.org/",
+  origin: "https://magiceraser.org",
+  userAgent:
+    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36"
+};
+
+let editimgProxyList = [];
+let editimgCurrentProxyIndex = 0;
+
+async function editimgFetchProxies() {
+  const response = await axios.get(editimgIkyyProxy, {
+    timeout: 10000
+  });
+
+  if (!Array.isArray(response.data) || response.data.length === 0) {
+    throw new Error("API proxy mengembalikan data kosong atau bukan array");
+  }
+
+  editimgProxyList = response.data
+    .map((proxy) => {
+      const parts = String(proxy).split(":");
+
+      if (parts.length !== 4) {
+        return null;
+      }
+
+      const [host, port, username, password] = parts;
+
+      return {
+        protocol: "http",
+        host,
+        port: parseInt(port, 10),
+        auth: {
+          username,
+          password
+        }
+      };
+    })
+    .filter(Boolean);
+
+  if (editimgProxyList.length === 0) {
+    throw new Error("Tidak ada proxy yang valid");
+  }
+
+  editimgCurrentProxyIndex = 0;
+}
+
+function editimgGenerateRandomSerial() {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
+    /[xy]/g,
+    (char) => {
+      const random = (Math.random() * 16) | 0;
+      const value =
+        char === "x"
+          ? random
+          : (random & 0x3) | 0x8;
+
+      return value.toString(16);
+    }
+  );
+}
+
+function editimgGetCleanHeaders(formHeaders = {}) {
+  return {
+    "User-Agent": editimgConfig.userAgent,
+    Origin: editimgConfig.origin,
+    Referer: editimgConfig.referer,
+    "Product-Code": "magiceraser",
+    "Product-Serial": editimgGenerateRandomSerial(),
+    "Router-Key": "photo_editor_me_v6",
+    "Sec-Ch-Ua":
+      '"Chromium";v="139", "Not;A=Brand";v="99"',
+    "Sec-Ch-Ua-Mobile": "?1",
+    "Sec-Ch-Ua-Platform": '"Android"',
+    ...formHeaders
+  };
+}
+
+function editimgGetAxiosInstance() {
+  if (!editimgProxyList.length) {
+    throw new Error("Proxy belum tersedia");
+  }
+
+  return axios.create({
+    baseURL: editimgConfig.baseUrl,
+    timeout: 30000,
+    validateStatus: () => true,
+    proxy: editimgProxyList[editimgCurrentProxyIndex]
+  });
+}
+
+function editimgRotateProxy() {
+  if (!editimgProxyList.length) {
+    return;
+  }
+
+  editimgCurrentProxyIndex =
+    (editimgCurrentProxyIndex + 1) %
+    editimgProxyList.length;
+}
+
+async function editimgCheckRouterStatus(apiClient) {
+  try {
+    await apiClient.get(
+      "/api/pai/common/system-parameters",
+      {
+        params: {
+          full_key: "router_free.photo_editor_me_v6"
+        },
+        headers: editimgGetCleanHeaders()
+      }
+    );
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function editimgCreateJobFromUrl(
+  apiClient,
+  imageUrl,
+  prompt
+) {
+  const form = new FormData();
+
+  form.append("model_name", "magiceraser_v6");
+  form.append("prompt", prompt);
+  form.append("original_image_url", imageUrl);
+  form.append("aspect_ratio", "default");
+  form.append("output_format", "jpg");
+  form.append("mode", "editor");
+  form.append("megapixels", "1");
+
+  const response = await apiClient.post(
+    "/api/runtime/jobs/create-job",
+    form,
+    {
+      headers: editimgGetCleanHeaders(
+        form.getHeaders()
+      )
+    }
+  );
+
+  if (
+    response.status !== 200 ||
+    !response.data?.code
+  ) {
+    throw new Error(
+      response.data?.message?.en ||
+        `Server Error (Code: ${response.status})`
+    );
+  }
+
+  if (response.data.code !== 100000) {
+    const message =
+      response.data?.message?.en ||
+      `API Error (Code: ${response.data.code})`;
+
+    if (
+      message
+        .toLowerCase()
+        .includes("insufficient")
+    ) {
+      throw new Error("INSUFFICIENT_CREDITS");
+    }
+
+    throw new Error(message);
+  }
+
+  const jobId = response.data?.result?.job_id;
+
+  if (!jobId) {
+    throw new Error("Job ID tidak ditemukan dari server");
+  }
+
+  return jobId;
+}
+
+async function editimgPollJobStatus(
+  apiClient,
+  jobId,
+  maxAttempts = 40,
+  interval = 3000
+) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const response = await apiClient.get(
+      `/api/runtime/jobs/get-job/${jobId}`,
+      {
+        headers: editimgGetCleanHeaders()
+      }
+    );
+
+    const status =
+      response.data?.result?.status;
+
+    if (status === 1) {
+      const outputUrl =
+        response.data?.result?.output_url;
+
+      if (!outputUrl) {
+        throw new Error(
+          "Proses selesai tetapi URL hasil tidak ditemukan"
+        );
+      }
+
+      return outputUrl;
+    }
+
+    if (status === -1) {
+      throw new Error(
+        "Proses AI gagal di server."
+      );
+    }
+
+    if (attempt < maxAttempts) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, interval)
+      );
+    }
+  }
+
+  throw new Error(
+    "Timeout menunggu hasil AI."
+  );
+}
+
+
+// ============================================================
+// HANDLER ENDPOINT
+// ============================================================
+
+async function handleEditimg(req, res) {
+  if (req.method !== "GET") {
+    return res.status(405).json({
+      status: false,
+      message: "Method tidak diizinkan. Gunakan GET.",
+      error: "Method Not Allowed"
+    });
+  }
+
+  const imageUrl =
+    req.query?.url ||
+    req.query?.image ||
+    req.query?.image_url;
+
+  const prompt =
+    req.query?.prompt ||
+    req.query?.text;
+
+  if (!imageUrl) {
+    return res.status(400).json({
+      status: false,
+      message:
+        "Parameter gambar wajib diisi.",
+      error:
+        'example: "/api/editimg?url=https://example.com/gambar.jpg&prompt=hapus%20orang"'
+    });
+  }
+
+  if (!prompt) {
+    return res.status(400).json({
+      status: false,
+      message:
+        "Parameter prompt wajib diisi.",
+      error:
+        'example: "/api/editimg?url=https://example.com/gambar.jpg&prompt=hapus%20orang"'
+    });
+  }
+
+  try {
+    await editimgFetchProxies();
+
+    let lastError = null;
+
+    const maxTotalAttempts =
+      Math.max(editimgProxyList.length * 2, 1);
+
+    for (
+      let attempt = 1;
+      attempt <= maxTotalAttempts;
+      attempt++
+    ) {
+      try {
+        const apiClient =
+          editimgGetAxiosInstance();
+
+        await editimgCheckRouterStatus(
+          apiClient
+        );
+
+        const jobId =
+          await editimgCreateJobFromUrl(
+            apiClient,
+            imageUrl,
+            prompt
+          );
+
+        const resultUrl =
+          await editimgPollJobStatus(
+            apiClient,
+            jobId
+          );
+
+        return res.status(200).json({
+          status: true,
+          source: "MagicEraser",
+          data: {
+            job_id: jobId,
+            original_url: imageUrl,
+            prompt,
+            result_url: resultUrl,
+            processed_at:
+              new Date().toISOString()
+          }
+        });
+      } catch (error) {
+        lastError = error;
+
+        editimgRotateProxy();
+
+        if (attempt < maxTotalAttempts) {
+          continue;
+        }
+      }
+    }
+
+    throw lastError || new Error(
+      "Semua percobaan gagal"
+    );
+  } catch (error) {
+    console.error(
+      "[editimg]",
+      error
+    );
+
+    return res.status(500).json({
+      status: false,
+      message:
+        "Gagal memproses gambar dengan AI.",
+      error: error.message
+    });
   }
 }
 //aibod
@@ -4727,6 +5082,8 @@ case "capcut":
   return handlePinterestSearch(req, res);
   case "reaction-wa":
   return handleReactionWa(req, res);
+  case "editimg":
+  return handleEditimg(req, res);
 case "lyrics":
   return handleLyrics(req, res);
 case "ai-image":
