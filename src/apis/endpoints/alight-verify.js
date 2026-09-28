@@ -5,7 +5,7 @@ export default {
   category: "Tools",
   method: "POST",
   endpoint: "/api/alight/verify",
-  icon: "BadgeCheck",
+  icon: "Alight motion",
 
   parameters: [
     {
