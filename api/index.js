@@ -56,6 +56,145 @@ async function ensureJsonBody(req) {
     req.body = {};
   }
 }
+//twiter
+const twitterVideoBaseUrl = "https://twmate.com/id2/?";
+
+async function handleTwitterVideo(req, res) {
+  try {
+    const { url } = req.query;
+
+    if (!url) {
+      return res.status(400).json({
+        status: false,
+        message: "Parameter URL Twitter/X wajib diisi",
+        error: 'example: "/api/twitter-video?url=https://x.com/user/status/123456789"'
+      });
+    }
+
+    if (!/^https?:\/\/(www\.)?(x\.com|twitter\.com)\//i.test(url)) {
+      return res.status(400).json({
+        status: false,
+        message: "URL harus berupa link Twitter/X yang valid",
+        error: 'example: "/api/twitter-video?url=https://x.com/user/status/123456789"'
+      });
+    }
+
+    const twitterVideoFormData = new URLSearchParams({
+      page: url,
+      ftype: "all",
+      ajax: "1"
+    }).toString();
+
+    const videos = await new Promise((resolve, reject) => {
+      const options = {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/x-www-form-urlencoded; charset=UTF-8",
+          "Content-Length": Buffer.byteLength(twitterVideoFormData),
+          Accept: "*/*",
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          Referer: "https://twmate.com/",
+          "X-Requested-With": "XMLHttpRequest"
+        }
+      };
+
+      const twitterVideoRequest = https.request(
+        twitterVideoBaseUrl,
+        options,
+        (twitterVideoResponse) => {
+          let htmlData = "";
+
+          twitterVideoResponse.on("data", (chunk) => {
+            htmlData += chunk;
+          });
+
+          twitterVideoResponse.on("end", () => {
+            try {
+              const $ = cheerio.load(htmlData);
+              const videoResults = [];
+
+              $(".files-table tbody tr").each((i, elem) => {
+                const quality = $(elem)
+                  .find("td")
+                  .eq(0)
+                  .text()
+                  .trim();
+
+                const type = $(elem)
+                  .find("td")
+                  .eq(1)
+                  .text()
+                  .trim();
+
+                const downloadLink = $(elem)
+                  .find("td")
+                  .eq(2)
+                  .find("a.btn")
+                  .attr("href");
+
+                if (downloadLink) {
+                  videoResults.push({
+                    quality,
+                    type,
+                    downloadLink
+                  });
+                }
+              });
+
+              if (videoResults.length === 0) {
+                reject(
+                  new Error(
+                    "Gagal menemukan link video di respons HTML."
+                  )
+                );
+              } else {
+                resolve(videoResults);
+              }
+            } catch (parseError) {
+              reject(
+                new Error(`Gagal memproses respons HTML: ${parseError.message}`)
+              );
+            }
+          });
+
+          twitterVideoResponse.on("error", (responseError) => {
+            reject(responseError);
+          });
+        }
+      );
+
+      twitterVideoRequest.on("error", (requestError) => {
+        reject(requestError);
+      });
+
+      twitterVideoRequest.setTimeout(30000, () => {
+        twitterVideoRequest.destroy(
+          new Error("Request ke layanan downloader melebihi batas waktu.")
+        );
+      });
+
+      twitterVideoRequest.write(twitterVideoFormData);
+      twitterVideoRequest.end();
+    });
+
+    return res.status(200).json({
+      status: true,
+      source: "TwMate",
+      data: {
+        url,
+        videos
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: "Gagal mengambil video Twitter/X",
+      error: error.message
+    });
+  }
+}
 //ff stalk
 const ffStalkBaseUrl = "https://freefire.my.id/api/ff";
 
@@ -5775,6 +5914,7 @@ case "ai-image":
     case "tempmail":
       return handleTempmail(req, res);
 case "ff-stalk": return handleFFStalk(req, res);
+case "twitter-video": return handleTwitterVideo(req, res);
     default:
       return res.status(404).json({
         status: false,
