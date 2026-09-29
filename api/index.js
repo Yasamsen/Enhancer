@@ -56,6 +56,56 @@ async function ensureJsonBody(req) {
     req.body = {};
   }
 }
+//ff stalk
+const ffStalkBaseUrl = "https://freefire.my.id/api/ff";
+
+async function handleFFStalk(req, res) {
+  try {
+    const { uid } = req.query;
+
+    if (!uid) {
+      return res.status(400).json({
+        status: false,
+        message: "Parameter UID wajib diisi",
+        error: 'example: "/api/ff-stalk?uid=123456789"'
+      });
+    }
+
+    if (!/^\d+$/.test(String(uid))) {
+      return res.status(400).json({
+        status: false,
+        message: "UID harus berupa angka",
+        error: 'example: "/api/ff-stalk?uid=123456789"'
+      });
+    }
+
+    const response = await axios.get(ffStalkBaseUrl, {
+      params: {
+        uid: uid
+      },
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36",
+        Referer: `https://freefire.my.id/stalk/${uid}`,
+        Accept: "application/json, text/plain, */*"
+      },
+      timeout: 30000
+    });
+
+    return res.status(200).json({
+      status: true,
+      source: "Free Fire",
+      data: response.data
+    });
+
+  } catch (error) {
+    return res.status(error.response?.status || 500).json({
+      status: false,
+      message: "Gagal mengambil data Free Fire",
+      error: error.message
+    });
+  }
+}
 //ig
 async function handleInstagram(req, res) {
   if (req.method !== "GET") {
@@ -5724,6 +5774,7 @@ case "ai-image":
       return handleAiImage(req, res);
     case "tempmail":
       return handleTempmail(req, res);
+case "ff-stalk": return handleFFStalk(req, res);
     default:
       return res.status(404).json({
         status: false,
