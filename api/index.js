@@ -67,7 +67,8 @@ async function handleTwitterVideo(req, res) {
       return res.status(400).json({
         status: false,
         message: "Parameter URL Twitter/X wajib diisi",
-        error: 'example: "/api/twitter-video?url=https://x.com/user/status/123456789"'
+        error:
+          'example: "/api/twitter-video?url=https://x.com/user/status/123456789"'
       });
     }
 
@@ -75,7 +76,8 @@ async function handleTwitterVideo(req, res) {
       return res.status(400).json({
         status: false,
         message: "URL harus berupa link Twitter/X yang valid",
-        error: 'example: "/api/twitter-video?url=https://x.com/user/status/123456789"'
+        error:
+          'example: "/api/twitter-video?url=https://x.com/user/status/123456789"'
       });
     }
 
@@ -85,99 +87,61 @@ async function handleTwitterVideo(req, res) {
       ajax: "1"
     }).toString();
 
-    const videos = await new Promise((resolve, reject) => {
-      const options = {
-        method: "POST",
+    const twitterVideoResponse = await axios.post(
+      twitterVideoBaseUrl,
+      twitterVideoFormData,
+      {
         headers: {
           "Content-Type":
             "application/x-www-form-urlencoded; charset=UTF-8",
-          "Content-Length": Buffer.byteLength(twitterVideoFormData),
           Accept: "*/*",
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
           Referer: "https://twmate.com/",
           "X-Requested-With": "XMLHttpRequest"
-        }
-      };
+        },
+        timeout: 30000
+      }
+    );
 
-      const twitterVideoRequest = https.request(
-        twitterVideoBaseUrl,
-        options,
-        (twitterVideoResponse) => {
-          let htmlData = "";
+    const $ = cheerio.load(twitterVideoResponse.data);
+    const videos = [];
 
-          twitterVideoResponse.on("data", (chunk) => {
-            htmlData += chunk;
-          });
+    $(".files-table tbody tr").each((i, elem) => {
+      const quality = $(elem)
+        .find("td")
+        .eq(0)
+        .text()
+        .trim();
 
-          twitterVideoResponse.on("end", () => {
-            try {
-              const $ = cheerio.load(htmlData);
-              const videoResults = [];
+      const type = $(elem)
+        .find("td")
+        .eq(1)
+        .text()
+        .trim();
 
-              $(".files-table tbody tr").each((i, elem) => {
-                const quality = $(elem)
-                  .find("td")
-                  .eq(0)
-                  .text()
-                  .trim();
+      const downloadLink = $(elem)
+        .find("td")
+        .eq(2)
+        .find("a.btn")
+        .attr("href");
 
-                const type = $(elem)
-                  .find("td")
-                  .eq(1)
-                  .text()
-                  .trim();
-
-                const downloadLink = $(elem)
-                  .find("td")
-                  .eq(2)
-                  .find("a.btn")
-                  .attr("href");
-
-                if (downloadLink) {
-                  videoResults.push({
-                    quality,
-                    type,
-                    downloadLink
-                  });
-                }
-              });
-
-              if (videoResults.length === 0) {
-                reject(
-                  new Error(
-                    "Gagal menemukan link video di respons HTML."
-                  )
-                );
-              } else {
-                resolve(videoResults);
-              }
-            } catch (parseError) {
-              reject(
-                new Error(`Gagal memproses respons HTML: ${parseError.message}`)
-              );
-            }
-          });
-
-          twitterVideoResponse.on("error", (responseError) => {
-            reject(responseError);
-          });
-        }
-      );
-
-      twitterVideoRequest.on("error", (requestError) => {
-        reject(requestError);
-      });
-
-      twitterVideoRequest.setTimeout(30000, () => {
-        twitterVideoRequest.destroy(
-          new Error("Request ke layanan downloader melebihi batas waktu.")
-        );
-      });
-
-      twitterVideoRequest.write(twitterVideoFormData);
-      twitterVideoRequest.end();
+      if (downloadLink) {
+        videos.push({
+          quality,
+          type,
+          downloadLink
+        });
+      }
     });
+
+    if (videos.length === 0) {
+      return res.status(404).json({
+        status: false,
+        message: "Video tidak ditemukan",
+        error: "Tidak ada link video pada respons TwMate"
+      });
+    }
 
     return res.status(200).json({
       status: true,
@@ -187,8 +151,9 @@ async function handleTwitterVideo(req, res) {
         videos
       }
     });
+
   } catch (error) {
-    return res.status(500).json({
+    return res.status(error.response?.status || 500).json({
       status: false,
       message: "Gagal mengambil video Twitter/X",
       error: error.message
