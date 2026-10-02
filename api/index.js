@@ -12,6 +12,7 @@ import crypto from "node:crypto";
 import CryptoJS from "crypto-js";
 import vm from "node:vm";
 import { createHash } from "node:crypto";
+import { handleDownload } from "./_download.js";
 // Semua endpoint digabung ke 1 file supaya hanya dihitung 1 Serverless
 // Function oleh Vercel (Hobby plan cuma boleh maksimal 12 function).
 // Body parser dimatikan secara global karena nano-banana butuh raw stream
@@ -5816,6 +5817,8 @@ export default async function handler(req, res) {
   const routeKey = getRouteKey(req);
 
   switch (routeKey) {
+    case "download":
+      return handleDownload(req, res);
     case "tiktok":
       return handleTiktok(req, res);
     case "instagram-stalker":
