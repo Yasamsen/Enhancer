@@ -8,6 +8,7 @@ export function renderApp() {
   const path = getPath();
   document.title = path.startsWith('/docs') ? 'Documentation — SamApi' : path === '/500' ? 'Server Error — SamApi' : path === '/404' ? 'Not Found — SamApi' : 'SamApi — Simple, powerful APIs';
   const isError = path === '/404' || path === '/500';
+  document.documentElement.classList.toggle('no-anim', !!window.__noAnim); window.__noAnim = false;
   const root=document.getElementById('root');
   root.innerHTML=`<div class="min-h-screen bg-white text-slate-900 transition-colors dark:bg-slate-950 dark:text-white">${renderNavbar(path)}<div id="page">${path==='/'?renderHome():path==='/docs'||path.startsWith('/docs/')?renderDocs(path):path==='/500'?renderError('500'):renderError('404')}</div>${!isError?renderFooter():''}</div>`;
   bindNavbar();
